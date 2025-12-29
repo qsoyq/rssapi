@@ -1,11 +1,12 @@
 import time
+import importlib.metadata
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from rssapi.utils.basic import get_date_string_for_shanghai
 
 
 run_at_ts = int(time.time())
 run_at = get_date_string_for_shanghai(run_at_ts)
-version = "0.1.0"
+version = importlib.metadata.version("rssapi")
 
 
 class AppSettings(BaseSettings):  # type:ignore
