@@ -1,0 +1,186 @@
+[project]
+name = "rssapi"
+version = "0.1.0"
+description = "RSS subscription tool"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pytest",
+    "mypy",
+    "pre-commit",
+    "ipython",
+    "fastapi",
+    "uvicorn",
+    "httpx[http2,socks]",
+    "hypercorn",
+    "pretty-errors",
+    "typer[all]",
+    "pyyaml",
+    "oss2",
+    "ruff",
+    "types-pyyaml",
+    "python-dateutil",
+    "types-python-dateutil",
+    "xmltodict",
+    "types-xmltodict",
+    "beautifulsoup4",
+    "yagmail",
+    "types-beautifulsoup4",
+    "cairosvg",
+    "python-multipart",
+    "pip",
+    "pycairo",
+    "pyjwt",
+    "ics",
+    "dateparser",
+    "types-dateparser",
+    "psutil",
+    "python-ssl-checker",
+    "pytest-asyncio",
+    "feedgen",
+    "pytz",
+    "cloudscraper",
+    "pydantic-settings",
+    "cachetools",
+    "htmlmin",
+    "asyncache",
+    "types-cachetools",
+    "js2py",
+    "markdown",
+    "curl-cffi",
+    "pytest-playwright",
+    "proto-plus",
+]
+
+[project.scripts]
+rssapi-server = "rssapi.main:cmd"
+
+[tool.hatch.build.targets.wheel]
+packages = ["rssapi"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
+# Same as Black.
+line-length = 119
+indent-width = 4
+
+[tool.ruff.lint]
+# Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.
+# Unlike Flake8, Ruff doesn't enable pycodestyle warnings (`W`) or
+# McCabe complexity (`C901`) by default.
+select = ["E4", "E7", "E9", "F"]
+ignore = []
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"
+# Enable auto-formatting of code examples in docstrings. Markdown,
+# reStructuredText code/literal blocks and doctests are all supported.
+#
+# This is currently disabled by default, but it is planned for this
+# to be opt-out in the future.
+docstring-code-format = true
+
+# Set the line length limit used when formatting code snippets in
+# docstrings.
+#
+# This only has an effect when the `docstring-code-format` setting is
+# enabled.
+# docstring-code-line-length = "dynamic"
+# [build-system]
+# requires = ["poetry-core>=1.0.0"]
+# build-backend = "poetry.core.masonry.api"
+
+[tool.mypy]
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = false
+exclude = ['^venv/', '^__init__\.py$']
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = [
+    "exception.*",
+    "routers.*",
+    "responses.*",
+    "schemas.*",
+    "settings.*",
+    "models.*",
+    "utils.*",
+    "uvicorn",
+    "oss2",
+    "yaml.*",
+    "xmltodict",
+    "yagmail",
+    "bs4",
+    "deps",
+    "cairosvg",
+    "PyJWT",
+    "ics.*",
+    "main",
+    "ssl_checker",
+    "pytz",
+    "feedgen.*",
+    "cloudscraper",
+    "requests.*",
+    "pydantic_settings",
+    "events.*",
+    "cachetools.*",
+    "htmlmin",
+    "middlewares.*",
+    "asyncache.*",
+    "js2py",
+    "markdown",
+    "psutil",
+    "curl_cffi",
+    "playwright.*",
+    "proto.*",
+]
+ignore_missing_imports = true
+follow_untyped_imports = true
+
+[tool.pytest.ini_options]
+markers = ["nga_delay: add a delay before running the marked tests.d')"]
