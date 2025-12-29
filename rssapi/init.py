@@ -11,8 +11,9 @@ from rssapi.core.exception import register_exception_handler
 from rssapi.utils.mermaid import load_mermaid_plugin
 
 
-def include_routers(app: FastAPI, module_name: str = "rssapi.applications.rss.routers"):
-    api_prefix = AppSettings().api_prefix
+def include_routers(app: FastAPI, module_name: str = "rssapi.applications.rss.routers", api_prefix: str | None = None):
+    if api_prefix is None:
+        api_prefix = AppSettings().api_prefix
 
     pkg = importlib.import_module(module_name)
     prefix = pkg.__name__ + "."
