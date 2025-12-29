@@ -70,9 +70,4 @@ async def startup_event(app: FastAPI):
 
 
 async def shutdown(app: FastAPI):
-    task: asyncio.Task = app.state.background_gc_task
-    if not task.done():
-        task.cancel()
-        logger.info("[shutdown]: background_gc task cancelled")
-
     logger.info("shutdown")
