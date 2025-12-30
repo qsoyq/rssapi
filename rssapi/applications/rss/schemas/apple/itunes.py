@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+
 from rssapi.applications.rss.schemas.adapter import HttpUrl
 
 

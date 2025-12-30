@@ -2,35 +2,36 @@ import asyncio
 import logging
 from typing import cast
 
-from fastapi import APIRouter, Query, Path, Request, HTTPException
+from asyncache import cached
+from fastapi import APIRouter, HTTPException, Path, Query, Request
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.core.responses import PrettyJSONResponse
-from rssapi.utils.rss.douyin import TimeoutException, AccessHistory, DouyinPlaywright, to_feeds
-from asyncache import cached
 from rssapi.core.settings import AppSettings
 from rssapi.utils.cache import RandomTTLCache
+from rssapi.utils.rss.douyin import (AccessHistory, DouyinPlaywright,
+                                     TimeoutException, to_feeds)
 
 rss_douyin_user_semaphore = asyncio.locks.Semaphore(AppSettings().rss_douyin_user_semaphore)
 
-router = APIRouter(tags=["RSS"], prefix="/rss/douyin/user")
+router = APIRouter(tags=['RSS'], prefix='/rss/douyin/user')
 
 logger = logging.getLogger(__file__)
 
 
 @router.get(
-    "/{username:str}",
-    summary="抖音用户作品订阅",
+    '/{username:str}',
+    summary='抖音用户作品订阅',
     response_model=JSONFeed,
     response_class=PrettyJSONResponse,
 )
 async def user(
     req: Request,
     username: str = Path(
-        ..., description="用户主页 id", examples=["MS4wLjABAAAAv4fFOLeoSQ9g8Mnc0mfPq0P6Gm14KBm2-p5sNVsdXhM"]
+        ..., description='用户主页 id', examples=['MS4wLjABAAAAv4fFOLeoSQ9g8Mnc0mfPq0P6Gm14KBm2-p5sNVsdXhM']
     ),
-    timeout: float = Query(60, description="执行抖音内容抓取的超时时间"),
-    use_cache: bool = Query(True, description="是否从缓存返回"),
+    timeout: float = Query(60, description='执行抖音内容抓取的超时时间'),
+    use_cache: bool = Query(True, description='是否从缓存返回'),
 ):
     """
     <pre class="mermaid">
@@ -55,19 +56,19 @@ async def user(
 
 
 @router.get(
-    "/{username:str}/{sessionid_ss:str}",
-    summary="抖音用户作品订阅",
+    '/{username:str}/{sessionid_ss:str}',
+    summary='抖音用户作品订阅',
     response_model=JSONFeed,
     response_class=PrettyJSONResponse,
 )
 async def user_with_cookie(
     req: Request,
     username: str = Path(
-        ..., description="用户主页 id", examples=["MS4wLjABAAAAv4fFOLeoSQ9g8Mnc0mfPq0P6Gm14KBm2-p5sNVsdXhM"]
+        ..., description='用户主页 id', examples=['MS4wLjABAAAAv4fFOLeoSQ9g8Mnc0mfPq0P6Gm14KBm2-p5sNVsdXhM']
     ),
-    sessionid_ss: str = Path(..., description="用户 Cookie"),
-    timeout: float = Query(60, description="执行内容获取的超时时间"),
-    use_cache: bool = Query(True, description="是否从缓存返回"),
+    sessionid_ss: str = Path(..., description='用户 Cookie'),
+    timeout: float = Query(60, description='执行内容获取的超时时间'),
+    use_cache: bool = Query(True, description='是否从缓存返回'),
 ):
     """
     <pre class="mermaid">
@@ -96,37 +97,37 @@ async def _get_douyin_user_videos(
 ):
     items: list[JSONFeedItem] = []
     feed = {
-        "version": "https://jsonfeed.org/version/1",
-        "title": "抖音用户作品RSS订阅",
-        "description": "",
-        "home_page_url": f"https://www.douyin.com/user/{username}",
-        "feed_url": f"{req.url.scheme}://{req.url.hostname}{req.url.path}?{req.url.query}",
-        "icon": "https://www.douyin.com/favicon.ico",
-        "favicon": "https://www.douyin.com/favicon.ico",
-        "items": items,
+        'version': 'https://jsonfeed.org/version/1',
+        'title': '抖音用户作品RSS订阅',
+        'description': '',
+        'home_page_url': f'https://www.douyin.com/user/{username}',
+        'feed_url': f'{req.url.scheme}://{req.url.hostname}{req.url.path}?{req.url.query}',
+        'icon': 'https://www.douyin.com/favicon.ico',
+        'favicon': 'https://www.douyin.com/favicon.ico',
+        'items': items,
     }
-    cookie = f"sessionid_ss={sessionid_ss}" if sessionid_ss else None
+    cookie = f'sessionid_ss={sessionid_ss}' if sessionid_ss else None
     try:
         async with asyncio.timeout(timeout):
             items = await get_feeds_by_cache(username, cookie) if use_cache else await get_feeds(username, cookie)
     except (asyncio.TimeoutError, TimeoutException, TimeoutError):
-        raise HTTPException(status_code=504, detail="获取数据超时")
+        raise HTTPException(status_code=504, detail='获取数据超时')
     douyin_user_feeds_handler(feed, items)
     return feed
 
 
 def douyin_user_feeds_handler(feed: dict, items: list[JSONFeedItem]):
     if items and items[0].author:
-        feed["title"] = items[0].author.name
-        feed["author"] = items[0].author
+        feed['title'] = items[0].author.name
+        feed['author'] = items[0].author
 
     if items and items[0].author and items[0].author.avatar:
-        feed["icon"] = feed["favicon"] = items[0].author.avatar
+        feed['icon'] = feed['favicon'] = items[0].author.avatar
 
     for item in items:
         if item.image and item.author:
             item.author.avatar = item.image
-    feed["items"] = items
+    feed['items'] = items
 
 
 @cached(RandomTTLCache(4096, AppSettings().rss_douyin_user_feeds_cache_time))
@@ -139,10 +140,10 @@ async def get_feeds(username: str, cookie: str | None) -> list[JSONFeedItem]:
         if cookie:
             await AccessHistory.append(username, cookie)
 
-        url = f"https://www.douyin.com/user/{username}"
+        url = f'https://www.douyin.com/user/{username}'
         play = DouyinPlaywright(url)
         if cookie is not None:
-            cookies = play.cookies_by_str(cookie, "https://www.douyin.com")
+            cookies = play.cookies_by_str(cookie, 'https://www.douyin.com')
             play.add_cookies(cookies)
 
         result = await play.run()

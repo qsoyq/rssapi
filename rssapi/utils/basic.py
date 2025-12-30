@@ -1,32 +1,30 @@
-import shelve
-import textwrap
-import json
-import shlex
 import contextvars
-import warnings
+import json
 import logging
+import shelve
+import shlex
+import textwrap
 import urllib.parse
-
+import warnings
+from _thread import LockType
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from functools import partial, reduce
 from pathlib import Path
 from threading import Lock
-from _thread import LockType
-from datetime import datetime
-from functools import reduce, partial
 from typing import Callable, cast
 
-from dataclasses import dataclass, asdict
-
-
-import dateparser
-import pytz
 import click
-import httpx
-from bs4 import BeautifulSoup as Soup, Tag
+import dateparser
 import feedgen
 import feedgen.feed
-from rssapi.applications.rss.schemas.rss.telegram import TelegramChannalMessage
-from rssapi.applications.rss.schemas.adapter import HttpUrl
+import httpx
+import pytz
+from bs4 import BeautifulSoup as Soup
+from bs4 import Tag
 
+from rssapi.applications.rss.schemas.adapter import HttpUrl
+from rssapi.applications.rss.schemas.rss.telegram import TelegramChannalMessage
 
 logger = logging.getLogger(__file__)
 
@@ -38,7 +36,7 @@ def optional_chain(obj, keys: str):
         return getattr(obj, key)
 
     try:
-        return reduce(get_value, keys.split("."), obj)
+        return reduce(get_value, keys.split('.'), obj)
     except (AttributeError, KeyError):
         return None
 
@@ -69,7 +67,7 @@ class CurlDetail:
         """生成的http 请求代码参考
         https://raw.githubusercontent.com/qsoyq/shell/main/config/stash/script/loglog.js loglog.HttpClientloglog.HttpClient
         """
-        body = self.body or ""
+        body = self.body or ''
         template = f"""
         let url = '{self.url}'
         let res = await {self.method.lower()}({{ url, body: '{body}', headers: {json.dumps(self.headers)}}})
@@ -80,8 +78,8 @@ class CurlDetail:
         return textwrap.dedent(template).strip()
 
     def to_httpx(self) -> str:
-        body = self.body or ""
-        if self.method.lower() == "get":
+        body = self.body or ''
+        if self.method.lower() == 'get':
             template = f"""
             url = '{self.url}'
             headers = {repr(self.headers)}
@@ -128,25 +126,25 @@ class CurlParser:
         self.token_count = len(self.tokens)
         self.method_from_body_flag = False
         self.options: list[CurlOption] = []
-        self.add_option("-d", "--data", cb=self.parse_data)
-        self.add_option("-H", "--header", cb=self.parse_header)
-        self.add_option("-X", cb=self.parse_method)
+        self.add_option('-d', '--data', cb=self.parse_data)
+        self.add_option('-H', '--header', cb=self.parse_header)
+        self.add_option('-X', cb=self.parse_method)
         skip = [
-            ("-f", "--fail"),
-            ("-h", "--help"),
-            ("-i", "--include"),
+            ('-f', '--fail'),
+            ('-h', '--help'),
+            ('-i', '--include'),
         ]
         for alias in skip:
             self.add_option(*alias, cb=self.parse_skip)
 
         skip = [
-            ("-o", "--output"),
-            ("-O", "--remote-name"),
+            ('-o', '--output'),
+            ('-O', '--remote-name'),
         ]
         for alias in skip:
             self.add_option(*alias, cb=partial(self.parse_skip, step=2))
 
-        self.url = ""
+        self.url = ''
         self.method = None
         self.body = None
         self.headers: dict[str, str] = {}
@@ -175,9 +173,9 @@ class CurlParser:
             if flag:
                 break
         else:
-            if token.startswith("http"):
+            if token.startswith('http'):
                 if self.url:
-                    raise ArgumentAlreadyException("url already exists")
+                    raise ArgumentAlreadyException('url already exists')
                 self.url = token
             self.index += 1
 
@@ -187,65 +185,65 @@ class CurlParser:
 
     def parse_header(self):
         token = self.tokens[self.index]
-        if token in ("-H", "--header"):
+        if token in ('-H', '--header'):
             if self.index + 1 >= self.token_count:
-                raise ArgumentValueNotExistsException("bad header argument")
+                raise ArgumentValueNotExistsException('bad header argument')
             pairs = self.tokens[self.index + 1]
-            if ":" not in pairs:
-                raise ArgumentValueNotExistsException("bad header argument")
-            key, value = pairs.split(":", 1)
+            if ':' not in pairs:
+                raise ArgumentValueNotExistsException('bad header argument')
+            key, value = pairs.split(':', 1)
             self.headers[key.strip()] = value.strip()
             self.index += 2
         else:
-            if token.startswith("-H"):
+            if token.startswith('-H'):
                 pairs = token[2:]
-            elif token.startswith("--header"):
+            elif token.startswith('--header'):
                 pairs = token[8:]
             else:
-                raise ArgumentValueNotExistsException("bad header argument")
-            if ":" not in pairs:
-                raise ArgumentValueNotExistsException("bad header argument")
-            key, value = pairs.split(":", 1)
+                raise ArgumentValueNotExistsException('bad header argument')
+            if ':' not in pairs:
+                raise ArgumentValueNotExistsException('bad header argument')
+            key, value = pairs.split(':', 1)
             self.headers[key.strip()] = value.strip()
             self.index += 1
 
     def parse_data(self):
         token = self.tokens[self.index]
-        if token in ("-d", "--data"):
+        if token in ('-d', '--data'):
             if self.index + 1 >= self.token_count:
-                raise ArgumentValueNotExistsException("bad data argument")
+                raise ArgumentValueNotExistsException('bad data argument')
             body = self.tokens[self.index + 1]
             self.body = body
             self.index += 2
         else:
-            if token.startswith("-d"):
+            if token.startswith('-d'):
                 body = token[2:]
-            elif token.startswith("--data"):
+            elif token.startswith('--data'):
                 body = token[6:]
             else:
-                raise ArgumentValueNotExistsException("bad data argument")
+                raise ArgumentValueNotExistsException('bad data argument')
             self.body = body
             self.index += 1
 
         if self.method is None:
             self.method_from_body_flag = True
-            self.method = "POST"
+            self.method = 'POST'
 
     def parse_method(self):
         token = self.tokens[self.index]
-        if token == "-X":
+        if token == '-X':
             if self.index + 1 >= self.token_count:
-                raise ArgumentValueNotExistsException("bad method argument")
+                raise ArgumentValueNotExistsException('bad method argument')
             method = self.tokens[self.index + 1].upper()
             self.index += 2
         else:
-            if token.startswith("-X"):
+            if token.startswith('-X'):
                 method = token[2:]
             else:
-                raise ArgumentValueNotExistsException("bad method argument")
+                raise ArgumentValueNotExistsException('bad method argument')
             self.index += 1
         if self.method is not None and self.method_from_body_flag is False:
-            raise ArgumentValueNotExistsException("bad method argument")
+            raise ArgumentValueNotExistsException('bad method argument')
         self.method = method
 
     def parse_skip(self, step: int = 1):
@@ -253,82 +251,82 @@ class CurlParser:
 
 
 class TelegramToolkit:
-    URLScheme = contextvars.ContextVar("URLScheme", default=True)
+    URLScheme = contextvars.ContextVar('URLScheme', default=True)
 
     @staticmethod
     def format_telegram_message_text(tag: Tag) -> str:
-        return Soup(str(tag).replace("<br/>", "\n"), "lxml").getText()
+        return str(Soup(str(tag).replace('<br/>', '\n'), 'lxml').getText())
 
     @staticmethod
-    def generate_img_tag(url, alt_text=""):
+    def generate_img_tag(url, alt_text=''):
         return f'<img src="{url}" alt="{alt_text}">'
 
     @staticmethod
     async def fetch_telegram_messages(channelName: str) -> httpx.Response | None:
         headers = {
-            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
         }
 
         try:
             async with httpx.AsyncClient(headers=headers, verify=False) as client:
-                url = f"https://t.me/s/{channelName}"
+                url = f'https://t.me/s/{channelName}'
                 res = await client.get(url)
                 res.raise_for_status()
                 return res
         except Exception as e:
-            logger.error(f"[Telegarm Channel RSS] get_channel_messages error: {e}")
+            logger.error(f'[Telegarm Channel RSS] get_channel_messages error: {e}')
         return None
 
     @staticmethod
     def get_head_by_document(document: Soup) -> str:
-        img_css = "body > header > div > div.tgme_header_info > a.tgme_header_link > i > img"
+        img_css = 'body > header > div > div.tgme_header_info > a.tgme_header_link > i > img'
         head_tag = document.select_one(img_css)
-        return str(head_tag.attrs["src"]) if head_tag else ""
+        return str(head_tag.attrs['src']) if head_tag else ''
 
     @staticmethod
     def get_author_name_by_document(document: Soup) -> str:
         channelInfoHeaderTitle = document.select_one("div[class='tgme_channel_info_header_title'] > span")
-        return channelInfoHeaderTitle.text if channelInfoHeaderTitle else ""
+        return channelInfoHeaderTitle.text if channelInfoHeaderTitle else ''
 
     @staticmethod
     def get_text_outer_html_by_widget(widget: Tag) -> str | None:
-        textTag = widget.select_one(".js-message_text")
+        textTag = widget.select_one('.js-message_text')
         if textTag:
             return str(textTag)
         return None
 
     @staticmethod
     def get_title_by_widget(widget: Tag) -> str:
-        title = ""
-        textTag = widget.select_one(".js-message_text")
+        title = ''
+        textTag = widget.select_one('.js-message_text')
         if textTag:
-            title_tag = widget.select_one(".js-message_text > b")
+            title_tag = widget.select_one('.js-message_text > b')
             if title_tag:
                 title = title_tag.get_text()
-                return title
+                return str(title)
         tags = TelegramToolkit.get_tags_by_widget(widget)
         if tags:
-            return " ".join(tags)
+            return ' '.join(tags)
 
-        return ""
+        return ''
 
     @staticmethod
     def get_text_content_by_widget(widget: Tag) -> str:
-        textTag = widget.select_one(".js-message_text")
+        textTag = widget.select_one('.js-message_text')
         if textTag:
-            msg = widget.select_one(".js-message_text")
+            msg = widget.select_one('.js-message_text')
             if msg:
                 text = TelegramToolkit.format_telegram_message_text(msg)
-                return text or ""
-        return ""
+                return text or ''
+        return ''
 
     @staticmethod
     def get_username_by_widget(widget: Tag) -> str:
-        return str(widget.attrs["data-post"]).split("/")[0]
+        return str(widget.attrs['data-post']).split('/')[0]
 
     @staticmethod
     def get_msgid_by_widget(widget: Tag) -> str:
-        return str(widget.attrs["data-post"]).split("/")[1]
+        return str(widget.attrs['data-post']).split('/')[1]
 
     @staticmethod
     def get_published_by_widget(widget: Tag) -> str:
@@ -336,21 +334,21 @@ class TelegramToolkit:
         if footer:
             meta = footer.select_one("span[class='tgme_widget_message_meta']")
             if meta:
-                t = meta.select_one("time")
-                return str(t.attrs["datetime"]) if t else ""
-        return ""
+                t = meta.select_one('time')
+                return str(t.attrs['datetime']) if t else ''
+        return ''
 
     @staticmethod
     def get_photos_by_widget(widget: Tag) -> list[HttpUrl]:
-        messagePhotos = widget.select("a.js-message_photo")  # 图片组
+        messagePhotos = widget.select('a.js-message_photo')  # 图片组
         if not messagePhotos:
-            messagePhotos = widget.select("a.tgme_widget_message_photo_wrap")  # 单张图片消息
+            messagePhotos = widget.select('a.tgme_widget_message_photo_wrap')  # 单张图片消息
         photoUrls: list[HttpUrl] = []
         for p in messagePhotos:
-            if not isinstance(p.attrs["style"], str):
+            if not isinstance(p.attrs['style'], str):
                 continue
-            backgroundImage = {k: v for k, v in (item.split(":", 1) for item in p.attrs["style"].split(";"))}.get(
-                "background-image", None
+            backgroundImage = {k: v for k, v in (item.split(':', 1) for item in p.attrs['style'].split(';'))}.get(
+                'background-image', None
             )
             if backgroundImage:
                 backgroundImage = backgroundImage[5:-2]
@@ -362,7 +360,7 @@ class TelegramToolkit:
         text = TelegramToolkit.get_text_content_by_widget(widget)
         tags = []
         if text:
-            tags = [x.strip() for x in text.replace("\n", " ").split(" ") if x.startswith("#")]
+            tags = [x.strip() for x in text.replace('\n', ' ').split(' ') if x.startswith('#')]
         return tags
 
     @staticmethod
@@ -380,11 +378,11 @@ class TelegramToolkit:
             return []
 
         messages = []
-        document = Soup(res.text, "lxml")
+        document = Soup(res.text, 'lxml')
         head = TelegramToolkit.get_head_by_document(document)
         authorName = TelegramToolkit.get_author_name_by_document(document)
 
-        tgme_widget_message = document.select("div.tgme_widget_message")
+        tgme_widget_message = document.select('div.tgme_widget_message')
         for widget in tgme_widget_message:
             try:
                 title = TelegramToolkit.get_title_by_widget(widget)
@@ -396,7 +394,7 @@ class TelegramToolkit:
                 photoUrls = TelegramToolkit.get_photos_by_widget(widget)
                 tags = TelegramToolkit.get_tags_by_widget(widget)
             except Exception as e:
-                logger.warning(f"[TelegramToolkit] get channel message error: {e}\nwidget: {widget}")
+                logger.warning(f'[TelegramToolkit] get channel message error: {e}\nwidget: {widget}')
                 continue
             if contentHtml:
                 pass
@@ -422,7 +420,7 @@ class TelegramToolkit:
         fg: feedgen.feed.FeedGenerator, message: TelegramChannalMessage
     ) -> feedgen.feed.FeedEntry:
         warnings.warn(
-            "make_feed_entry_by_telegram_message is deprecated and will be removed in future versions.",
+            'make_feed_entry_by_telegram_message is deprecated and will be removed in future versions.',
             DeprecationWarning,
             stacklevel=2,
         )
@@ -433,11 +431,11 @@ class TelegramToolkit:
         entry.content(message.text)
         entry.published(dateparser.parse(message.updated))
         if urlscheme:
-            qs = urllib.parse.urlencode({"url": f"tg://resolve?domain={message.username}&post={message.msgid}&single"})
-            url = f"https://p.19940731.xyz/api/network/url/redirect?{qs}"
+            qs = urllib.parse.urlencode({'url': f'tg://resolve?domain={message.username}&post={message.msgid}&single'})
+            url = f'https://p.19940731.xyz/api/network/url/redirect?{qs}'
             entry.link(href=url)
         else:
-            entry.link(href=f"https://t.me/{message.channelName}/{message.msgid}")
+            entry.link(href=f'https://t.me/{message.channelName}/{message.msgid}')
         return entry
 
 
@@ -447,44 +445,44 @@ class URLToolkit:
         return f'<img src="{url}">'
 
     @staticmethod
-    def make_video_tag_by_url(url: str, preload: str = "auto", autoplay: bool = False) -> str:
-        extra = ""
+    def make_video_tag_by_url(url: str, preload: str = 'auto', autoplay: bool = False) -> str:
+        extra = ''
         if autoplay:
-            extra = f"{extra} autoplay"
+            extra = f'{extra} autoplay'
 
         return f'<video src="{url}" preload="{preload}" {extra}></video>'
 
     @staticmethod
     def resolve_url(url: str) -> str:
         if not url:
-            return ""
-        if url.startswith("//"):
-            return f"https:{url}"
+            return ''
+        if url.startswith('//'):
+            return f'https:{url}'
         return url
 
 
 class ColorFormatter(logging.Formatter):
-    _format = "%(asctime)s %(levelname)s %(message)s"
-    _datefmt = "%Y-%m-%d %H:%M:%S"
+    _format = '%(asctime)s %(levelname)s %(message)s'
+    _datefmt = '%Y-%m-%d %H:%M:%S'
 
     log_colors: dict[int, list[tuple[str, str]]] = {
         logging.DEBUG: [
-            ("%(levelname)s", "cyan"),
+            ('%(levelname)s', 'cyan'),
         ],
         logging.INFO: [
-            ("%(levelname)s", "green"),
+            ('%(levelname)s', 'green'),
         ],
         logging.WARNING: [
-            ("%(levelname)s", "yellow"),
-            ("%(message)s", "yellow"),
+            ('%(levelname)s', 'yellow'),
+            ('%(message)s', 'yellow'),
         ],
         logging.ERROR: [
-            ("%(levelname)s", "red"),
-            ("%(message)s", "red"),
+            ('%(levelname)s', 'red'),
+            ('%(message)s', 'red'),
         ],
         logging.CRITICAL: [
-            ("%(levelname)s", "bright_red"),
-            ("%(message)s", "bright_red"),
+            ('%(levelname)s', 'bright_red'),
+            ('%(message)s', 'bright_red'),
         ],
     }
 
@@ -508,9 +506,9 @@ def init_logger(log_level: int):
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
     root_logger.addHandler(handler)
-    logging.basicConfig(level=log_level, format="%(asctime)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    logging.basicConfig(level=log_level, format='%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
-    logger = logging.getLogger("uvicorn.access")
+    logger = logging.getLogger('uvicorn.access')
     handler = logging.StreamHandler()
     handler.setFormatter(color_formatter)
     logger.addHandler(handler)
@@ -527,7 +525,7 @@ class ShelveStorage:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if not self.path.exists():
             with self._lock:
-                with shelve.open(str(self.path), "c") as _:
+                with shelve.open(str(self.path), 'c') as _:
                     pass
 
     def __enter__(self):
@@ -537,11 +535,11 @@ class ShelveStorage:
         self._lock.release()
 
     def _get(self, key):
-        with shelve.open(str(self.path), "r") as shl:
+        with shelve.open(str(self.path), 'r') as shl:
             return shl.get(key)
 
     def _set(self, key, value):
-        with shelve.open(str(self.path), "c") as shl:
+        with shelve.open(str(self.path), 'c') as shl:
             shl[key] = value
 
     def __setitem__(self, key, value):
@@ -551,17 +549,17 @@ class ShelveStorage:
         return self._get(key)
 
     def keys(self):
-        with shelve.open(str(self.path), "r") as shl:
+        with shelve.open(str(self.path), 'r') as shl:
             for key in shl:
                 yield key
 
     def iterall(self):
-        with shelve.open(str(self.path), "r") as shl:
+        with shelve.open(str(self.path), 'r') as shl:
             for key in shl:
                 yield (key, shl[key])
 
 
 def get_date_string_for_shanghai(ts: int) -> str:
     return cast(
-        str, pytz.timezone("Asia/Shanghai").localize(datetime.fromtimestamp(ts)).strftime("%Y-%m-%dT%H:%M:%S%z")
+        str, pytz.timezone('Asia/Shanghai').localize(datetime.fromtimestamp(ts)).strftime('%Y-%m-%dT%H:%M:%S%z')
     )

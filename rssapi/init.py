@@ -1,26 +1,26 @@
-import pkgutil
 import importlib
+import pkgutil
 
 from fastapi import FastAPI
 
-import rssapi.core.middlewares.rss
 import rssapi.core.middlewares.errors
 import rssapi.core.middlewares.json_response
-from rssapi.core.settings import AppSettings
+import rssapi.core.middlewares.rss
 from rssapi.core.exception import register_exception_handler
+from rssapi.core.settings import AppSettings
 from rssapi.utils.mermaid import load_mermaid_plugin
 
 
-def include_routers(app: FastAPI, module_name: str = "rssapi.applications.rss.routers", api_prefix: str | None = None):
+def include_routers(app: FastAPI, module_name: str = 'rssapi.applications.rss.routers', api_prefix: str | None = None):
     if api_prefix is None:
         api_prefix = AppSettings().api_prefix
 
     pkg = importlib.import_module(module_name)
-    prefix = pkg.__name__ + "."
+    prefix = pkg.__name__ + '.'
 
     for _, mod_name, _ in pkgutil.walk_packages(pkg.__path__, prefix):
         mod = importlib.import_module(mod_name)
-        router = getattr(mod, "router", None)
+        router = getattr(mod, 'router', None)
         if router is None:
             continue
         app.include_router(router, prefix=api_prefix)
