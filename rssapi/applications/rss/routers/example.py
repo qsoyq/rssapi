@@ -101,5 +101,5 @@ async def jsonfeed(
         "date_published": "2025-08-08 06:00:00 CST",
         "content_html": content_html,
     }
-    items.append(JSONFeedItem(**payload))
+    items.append(JSONFeedItem.model_validate(payload))
     return feed

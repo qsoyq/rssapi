@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import cast
+from typing import Any, cast
 from dataclasses import dataclass
 
 
@@ -95,7 +95,7 @@ def favorite(
             "date_published": topic.lastTouchedStr,
             "content_html": "",
         }
-        items.append(JSONFeedItem(**payload))
+        items.append(JSONFeedItem.model_validate(payload))
     return feed
 
 
@@ -130,7 +130,7 @@ async def notifications(
 
         _title = get_title_from_notification_text(item.text)
         assert _title, item.text
-        payload = {
+        payload: dict[str, Any] = {
             "author": {},
             "url": _url,
             "title": _title,
@@ -201,6 +201,10 @@ def get_topics(session_key: str, page: int = 1) -> GetTopicsData:
         title = link.text  # type:ignore
         tid = link.attrs["id"].split("-")[-1]  # type:ignore
         lastTouchedStr = item.find("span", class_="topic_info").find("span").attrs["title"]  # type:ignore
-        last_touched = int(parser.parse(lastTouchedStr).timestamp())
+        if isinstance(lastTouchedStr, str):
+            last_touched = int(parser.parse(lastTouchedStr).timestamp())
+        else:
+            logger.warning(f"skip becase invalid lastTouchedStr, item: {item}")
+            continue
         topics.append(Topic(id=tid, title=title, lastTouchedStr=lastTouchedStr, last_touched=last_touched))
     return GetTopicsData(topics=topics, has_next_page=has_next_page)

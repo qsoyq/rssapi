@@ -14,11 +14,6 @@ class AppSettings(BaseSettings):  # type:ignore
     basic_auth_user: str = "root"
     basic_auth_passwd: str = "example"
 
-    gc_trigger_memory_percent_limit: float = 80
-    gc_trigger_memory_percent_interval: int = 30
-
-    cloud_scraper_verify: bool = True
-
     # rss
     ## douyin
     rss_douyin_user_semaphore: int = 5
@@ -32,4 +27,4 @@ class AppSettings(BaseSettings):  # type:ignore
     rss_douyin_user_headless: bool = True
 
     # meta
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")

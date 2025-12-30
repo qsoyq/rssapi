@@ -1,5 +1,6 @@
 from enum import Enum
 from pydantic import BaseModel, Field
+from rssapi.applications.rss.schemas.github import AuthorSchema
 
 
 class GithubIssueState(str, Enum):
@@ -31,3 +32,5 @@ class GithubIssue(BaseModel):
     body: str | None = Field(None)
     created_at: str
     updated_at: str | None = Field(None)
+
+    user: AuthorSchema | None
