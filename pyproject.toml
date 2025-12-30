@@ -14,7 +14,7 @@ dependencies = [
     "httpx[http2,socks]",
     "hypercorn",
     "pretty-errors",
-    "typer[all]",
+    "typer",
     "pyyaml",
     "oss2",
     "ruff",
