@@ -78,7 +78,7 @@ async def fetch_feeds(owner: str, repo: str, token: str | None, per_page: int, p
             'id': f'github-issues-{owner}-{repo}-{item.id}',
             'url': item.html_url,
             'title': item.title,
-            'content_text': '',
+            'content_text': item.body or '',
             'date_published': item.created_at,
             'date_modified': item.updated_at,
             'author': {

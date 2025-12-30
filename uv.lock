@@ -2171,7 +2171,7 @@ wheels = [
 
 [[package]]
 name = "rssapi"
-version = "0.1.4"
+version = "0.1.5"
 source = { editable = "." }
 dependencies = [
     { name = "asyncache" },
@@ -2260,7 +2260,7 @@ requires-dist = [
     { name = "pytz" },
     { name = "pyyaml" },
     { name = "ruff" },
-    { name = "typer", extras = ["all"] },
+    { name = "typer" },
     { name = "typer-utils", git = "https://github.com/qsoyq/typer_utils" },
     { name = "types-beautifulsoup4" },
     { name = "types-cachetools" },
