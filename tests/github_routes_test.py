@@ -34,7 +34,7 @@ def test_github_commits(client: TestClient):
 
 
 def test_github_issues(client: TestClient):
-    path = '/api/rss/github/issues/repos/qsoyq/rssapi'
+    path = '/api/rss/github/issues/repos/NSRingo/WeatherKit'
     token = TestSettings().github.test_github_token
     assert token, token
     parmas = {}

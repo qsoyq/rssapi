@@ -1,9 +1,10 @@
-import schemas.notifications.apple as apple_
-import schemas.notifications.bark as bark_
-import schemas.notifications.gmail as gmail_
-import schemas.notifications.gotify as gotify_
-import schemas.notifications.telegram as telegram_
 from pydantic import BaseModel
+
+import rssapi.applications.rss.schemas.notifications.apple as apple_
+import rssapi.applications.rss.schemas.notifications.bark as bark_
+import rssapi.applications.rss.schemas.notifications.gmail as gmail_
+import rssapi.applications.rss.schemas.notifications.gotify as gotify_
+import rssapi.applications.rss.schemas.notifications.telegram as telegram_
 
 
 class PushMessage(BaseModel):

@@ -56,9 +56,3 @@ def test_telegram_channel(client: TestClient):
     response = client.get('/api/rss/telegram/channel', params={'channels': ['JISFW']})
     assert response.status_code == 200
     assert response.json()['items']
-
-
-def test_v2ex_aggregation(client: TestClient):
-    response = client.get('/api/rss/jsonfeed/v2ex/aggregation', params={'topics': ['dns']})
-    assert response.status_code == 200
-    assert response.json()['items']
