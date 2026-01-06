@@ -4,6 +4,7 @@ import re
 from typing import Awaitable, Callable, cast
 
 import httpx
+import markdown
 from bs4 import BeautifulSoup as Soup
 from bs4 import Tag
 from cachetools import FIFOCache, cached
@@ -12,7 +13,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
-# from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
 from rssapi.core.responses import PrettyJSONResponse
 
 app = FastAPI()
@@ -25,6 +25,7 @@ def add_middleware(app: FastAPI):
     app.add_middleware(NodeseekFeedFilterMiddleware)
     app.add_middleware(AddTwitterHTMLFeedMiddleware)
     app.add_middleware(UpdateTelegraphHTMLFeedMiddleware)
+    app.add_middleware(MarkdownRenderMiddleware)
 
 
 class AddTwitterHTMLFeedMiddleware(BaseHTTPMiddleware):
@@ -198,3 +199,35 @@ class NGAFeedFilterMiddleware(BaseFeedFilterMiddleware):
     BLOCK_REGEX_TITLE = ['预制菜']
 
     MATCH_URL_PATTERN = r'/api/rss/nga/'
+
+
+class MarkdownRenderMiddleware(BaseHTTPMiddleware):
+    """尝试对 content_text 进行 markdown 渲染, 并写进 content_html"""
+
+    def markdown_render(self, payload: dict):
+        feed = JSONFeedItem.model_validate(payload)
+        if feed.content_text and not feed.content_html:
+            try:
+                feed.content_html = markdown.markdown(feed.content_text)
+                feed.content_text = None
+            except Exception:
+                pass
+        return feed.model_dump()
+
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response | PrettyJSONResponse:
+        response = await call_next(request)
+        path = request.url.path
+        ct = response.headers.get('content-type')
+        if ct and ct.startswith('application/json') and path.startswith('/api/rss/'):
+            response_body = b''
+            async for chunk in response.body_iterator:  # type: ignore
+                response_body += chunk
+            body = json.loads(response_body)
+            headers = dict(response.headers)
+            headers.pop('content-length', None)
+            if body.get('version') == 'https://jsonfeed.org/version/1':
+                body['items'] = list(map(self.markdown_render, body['items']))
+            return PrettyJSONResponse(body, status_code=response.status_code, headers=headers)
+        return response
