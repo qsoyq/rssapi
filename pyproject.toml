@@ -1,6 +1,6 @@
 [project]
 name = "rssapi"
-version = "0.1.8"
+version = "0.1.9"
 description = "RSS subscription tool"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -190,3 +190,7 @@ markers = ["nga_delay: add a delay before running the marked tests.d')"]
 
 [tool.uv.sources]
 typer-utils = { git = "https://github.com/qsoyq/typer_utils" }
+
+[tool.isort]
+profile = "hug"
+src_paths = ["rssapi"]
