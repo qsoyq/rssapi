@@ -54,6 +54,7 @@ repos:
                 - types-dateparser
                 - types-python-dateutil
                 - jwt
+                - google-api-python-client
 
     - repo: https://github.com/astral-sh/ruff-pre-commit
       rev: v0.14.14
