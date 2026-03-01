@@ -2,14 +2,14 @@ import logging
 from functools import lru_cache
 from typing import TypedDict
 
-from cachetools import TTLCache, cached
 from googleapiclient.discovery import build
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
+from rssapi.utils.cache import RandomTTLCache, cached
 
 logger = logging.getLogger(__file__)
 
-_channel_feed_cache: TTLCache = TTLCache(maxsize=4096, ttl=600)
+_channel_feed_cache: RandomTTLCache = RandomTTLCache(maxsize=4096, ttl=3600)
 
 
 class YoutubeChannelSnippet(TypedDict):
