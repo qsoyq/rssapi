@@ -1,12 +1,14 @@
 import logging
+import threading
 from functools import lru_cache
 from typing import TypedDict
 
+from cachetools import cached
 from googleapiclient.discovery import build
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
 from rssapi.utils.basic import URLToolkit
-from rssapi.utils.cache import RandomTTLCache, cached
+from rssapi.utils.cache import RandomTTLCache
 
 logger = logging.getLogger(__file__)
 
@@ -64,6 +66,7 @@ def search_channel_videos(
     return videos
 
 
+@lru_cache(maxsize=1024)
 def fetch_channel_info_by_handle(api_key: str, handle: str) -> YoutubeChannelSnippet | None:
     """通过 YouTube handle（如 @zhongwenze）获取频道信息"""
     youtube = _get_youtube_service(api_key)
@@ -83,7 +86,7 @@ def fetch_channel_info_by_handle(api_key: str, handle: str) -> YoutubeChannelSni
     return snippet
 
 
-@cached(cache=_channel_feed_cache)
+@cached(cache=_channel_feed_cache, lock=threading.Lock())
 def fetch_channel_feed(api_key: str, handle: str, max_results: int = 10) -> list[JSONFeedItem]:
     items = []
     channel = fetch_channel_info_by_handle(api_key, handle)
