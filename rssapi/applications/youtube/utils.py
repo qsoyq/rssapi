@@ -5,6 +5,7 @@ from typing import TypedDict
 from googleapiclient.discovery import build
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
+from rssapi.utils.basic import URLToolkit
 from rssapi.utils.cache import RandomTTLCache, cached
 
 logger = logging.getLogger(__file__)
@@ -94,12 +95,15 @@ def fetch_channel_feed(api_key: str, handle: str, max_results: int = 10) -> list
 
 
 def video_to_jsonfeed_item(channel: YoutubeChannelSnippet, video: YoutubeVideoSnippet) -> JSONFeedItem:
+    youtube_video_url = f"https://www.youtube.com/watch?v={video['id']}"
+    video_tag = URLToolkit.make_youtube_video(video["id"], video["title"])
+    content_html = f"{video_tag}<br>{video['description']}"
     return JSONFeedItem.model_validate(
         {
             "id": f"youtube-video-{video['id']}",
-            "url": f"https://www.youtube.com/watch?v={video['id']}",
+            "url": youtube_video_url,
             "title": video["title"],
-            "content_html": video["description"],
+            "content_html": content_html,
             "date_published": video["publishedAt"],
             "image": video["thumbnails"],
             "author": {
