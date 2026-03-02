@@ -35,11 +35,11 @@ def channel_feed(
 
     通过 YouTube Data API V3 查询频道视频列表并转换为 JSON Feed 格式。
     """
-    raise HTTPException(status_code=400, detail="Not implemented")
     items = []
 
     channel = fetch_channel_info_by_handle(api_key, handle)
     if channel is not None:
+        logger.info(f"[YouTube.RSS] Fetching channel feed for title {channel['title']}")
         items = fetch_channel_feed(api_key, handle, max_results)
 
     feed = JSONFeed.model_validate(
