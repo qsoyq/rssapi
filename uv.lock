@@ -824,6 +824,15 @@ socks = [
 ]
 
 [[package]]
+name = "httpx-disable-verify"
+version = "0.1.1"
+source = { git = "https://github.com/qsoyq/httpx-disable-verify.git#7ecea52919949d0fdd5f1a2e9b220564847a4f05" }
+dependencies = [
+    { name = "httpx" },
+    { name = "typer" },
+]
+
+[[package]]
 name = "hypercorn"
 version = "0.18.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2289,7 +2298,7 @@ wheels = [
 
 [[package]]
 name = "rssapi"
-version = "0.1.17"
+version = "0.1.18"
 source = { editable = "." }
 dependencies = [
     { name = "asyncache" },
@@ -2304,6 +2313,7 @@ dependencies = [
     { name = "google-api-python-client" },
     { name = "htmlmin" },
     { name = "httpx", extra = ["http2", "socks"] },
+    { name = "httpx-disable-verify" },
     { name = "hypercorn" },
     { name = "ics" },
     { name = "ipython", version = "8.37.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -2356,6 +2366,7 @@ requires-dist = [
     { name = "google-api-python-client", specifier = ">=2.190.0" },
     { name = "htmlmin" },
     { name = "httpx", extras = ["http2", "socks"] },
+    { name = "httpx-disable-verify", git = "https://github.com/qsoyq/httpx-disable-verify.git" },
     { name = "hypercorn" },
     { name = "ics" },
     { name = "ipython" },

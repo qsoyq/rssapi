@@ -456,7 +456,7 @@ class URLToolkit:
     def make_youtube_video(video_id: str, title: str) -> str:
         content = f"""
         <iframe src="https://www.youtube.com/embed/{video_id}" title="{title}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
-        """
+        """.strip()
         return content
 
     @staticmethod

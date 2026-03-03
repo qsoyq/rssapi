@@ -1,6 +1,6 @@
 [project]
 name = "rssapi"
-version = "0.1.17"
+version = "0.1.18"
 description = "RSS subscription tool"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -52,6 +52,7 @@ dependencies = [
     "proto-plus",
     "typer-utils@git+https://github.com/qsoyq/typer_utils",
     "google-api-python-client>=2.190.0",
+    "httpx-disable-verify@git+https://github.com/qsoyq/httpx-disable-verify",
 ]
 
 [project.scripts]
@@ -192,6 +193,7 @@ markers = ["nga_delay: add a delay before running the marked tests.d')"]
 
 [tool.uv.sources]
 typer-utils = { git = "https://github.com/qsoyq/typer_utils" }
+httpx-disable-verify = { git = "https://github.com/qsoyq/httpx-disable-verify.git" }
 
 [tool.isort]
 profile = "hug"

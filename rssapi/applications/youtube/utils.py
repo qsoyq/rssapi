@@ -3,7 +3,10 @@ import threading
 from functools import lru_cache
 from typing import TypedDict
 
+import httpx
+import xmltodict
 from cachetools import TTLCache, cached
+from fastapi import HTTPException
 from googleapiclient.discovery import build
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
@@ -35,39 +38,43 @@ def _get_youtube_service(api_key: str):
     return build("youtube", "v3", developerKey=api_key)
 
 
-def search_channel_videos(
-    api_key: str,
-    channel_id: str,
-    max_results: int = 20,
-    page_token: str | None = None,
-) -> list[YoutubeVideoSnippet]:
-    """通过 search API 获取频道最新视频列表"""
-    youtube = _get_youtube_service(api_key)
-    request = youtube.search().list(
-        part="snippet",
-        channelId=channel_id,
-        order="date",
-        type="video",
-        maxResults=max_results,
-        pageToken=page_token or "",
-    )
-    result = request.execute()
+def _fetch_videos_via_rss(channel_id: str, max_results: int = 20) -> list[YoutubeVideoSnippet]:
+    """通过 YouTube 公开 RSS Feed 获取频道最新视频，不消耗 API 配额"""
+    feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+    resp = httpx.get(feed_url, timeout=15)
+    if resp.is_error:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+    data = xmltodict.parse(resp.text)
+    entries = data.get("feed", {}).get("entry", [])
+    if isinstance(entries, dict):
+        entries = [entries]
+
     videos: list[YoutubeVideoSnippet] = []
-    for item in result.get("items", []):
+    for entry in entries[:max_results]:
+        video_id = entry.get("yt:videoId", "")
+        media_group = entry.get("media:group", {})
+        thumbnail_url = ""
+        media_thumbnail = media_group.get("media:thumbnail")
+        if isinstance(media_thumbnail, dict):
+            thumbnail_url = media_thumbnail.get("@url", "")
+        elif isinstance(media_thumbnail, list) and media_thumbnail:
+            thumbnail_url = media_thumbnail[0].get("@url", "")
+
         video: YoutubeVideoSnippet = {
-            "id": item["id"]["videoId"],
-            "title": item["snippet"]["title"],
-            "description": item["snippet"]["description"],
-            "thumbnails": item["snippet"]["thumbnails"]["high"]["url"],
-            "publishedAt": item["snippet"]["publishedAt"],
+            "id": video_id,
+            "title": media_group.get("media:title", entry.get("title", "")),
+            "description": media_group.get("media:description", ""),
+            "thumbnails": thumbnail_url or f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+            "publishedAt": entry.get("published", ""),
         }
         videos.append(video)
     return videos
 
 
-@lru_cache(maxsize=1024)
+@lru_cache(maxsize=4096)
 def fetch_channel_info_by_handle(api_key: str, handle: str) -> YoutubeChannelSnippet | None:
-    """通过 YouTube handle（如 @zhongwenze）获取频道信息"""
+    """通过 YouTube handle（如 @zhongwenze）获取频道信息（channels.list 仅消耗 1 单位配额）"""
     youtube = _get_youtube_service(api_key)
     resp = youtube.channels().list(part="snippet,contentDetails", forHandle=handle).execute()
     items = resp.get("items", [])
@@ -87,11 +94,11 @@ def fetch_channel_info_by_handle(api_key: str, handle: str) -> YoutubeChannelSni
 
 @cached(cache=_channel_feed_cache, lock=threading.Lock())
 def fetch_channel_feed(api_key: str, handle: str, max_results: int) -> list[JSONFeedItem]:
-    items = []
+    """获取 YouTube 频道最新视频的 JSON Feed"""
     channel = fetch_channel_info_by_handle(api_key, handle)
     if channel is None:
         return []
-    videos: list[YoutubeVideoSnippet] = search_channel_videos(api_key, channel["id"], max_results=max_results)
+    videos = _fetch_videos_via_rss(channel["id"], max_results=max_results)
     items = [video_to_jsonfeed_item(channel, video) for video in videos]
     return items
 
