@@ -1,5 +1,6 @@
 import logging
 
+import googleapiclient.errors
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed
@@ -36,11 +37,14 @@ def channel_feed(
     通过 YouTube Data API V3 查询频道视频列表并转换为 JSON Feed 格式。
     """
     items = []
-
-    channel = fetch_channel_info_by_handle(api_key, handle)
-    if channel is not None:
-        logger.info(f"[YouTube.RSS] Fetching channel feed for title {channel['title']}")
-        items = fetch_channel_feed(api_key, handle, max_results)
+    try:
+        channel = fetch_channel_info_by_handle(api_key, handle)
+        if channel is not None:
+            logger.info(f"[YouTube.RSS] Fetching channel feed for title {channel['title']}")
+            items = fetch_channel_feed(api_key, handle, max_results)
+    except googleapiclient.errors.HttpError as e:
+        logger.warning(f"[YouTube.RSS] Error fetching {handle} channel feed: {e.reason}")
+        raise HTTPException(status_code=e.status_code, detail=e.reason)
 
     feed = JSONFeed.model_validate(
         {

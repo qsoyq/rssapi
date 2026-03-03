@@ -3,16 +3,15 @@ import threading
 from functools import lru_cache
 from typing import TypedDict
 
-from cachetools import cached
+from cachetools import TTLCache, cached
 from googleapiclient.discovery import build
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
 from rssapi.utils.basic import URLToolkit
-from rssapi.utils.cache import RandomTTLCache
 
 logger = logging.getLogger(__file__)
 
-_channel_feed_cache: RandomTTLCache = RandomTTLCache(maxsize=4096, ttl=3600)
+_channel_feed_cache: TTLCache = TTLCache(maxsize=4096, ttl=3600)
 
 
 class YoutubeChannelSnippet(TypedDict):
@@ -87,7 +86,7 @@ def fetch_channel_info_by_handle(api_key: str, handle: str) -> YoutubeChannelSni
 
 
 @cached(cache=_channel_feed_cache, lock=threading.Lock())
-def fetch_channel_feed(api_key: str, handle: str, max_results: int = 10) -> list[JSONFeedItem]:
+def fetch_channel_feed(api_key: str, handle: str, max_results: int) -> list[JSONFeedItem]:
     items = []
     channel = fetch_channel_info_by_handle(api_key, handle)
     if channel is None:
