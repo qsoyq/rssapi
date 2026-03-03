@@ -9,7 +9,7 @@ class NotificationRepositorySchema(BaseModel):
     name: str
     full_name: str
     html_url: str
-    description: str
+    description: str | None = None
     fork: bool
     owner: AuthorSchema
 
@@ -25,8 +25,8 @@ class NotificationSchema(BaseModel):
     id: str
     unread: bool
     reason: str
-    updated_at: str = Field(..., examples=['2025-10-06T13:29:36Z'])
-    last_read_at: str | None = Field(None, examples=['2025-10-06T13:29:36Z'])
+    updated_at: str = Field(..., examples=["2025-10-06T13:29:36Z"])
+    last_read_at: str | None = Field(None, examples=["2025-10-06T13:29:36Z"])
     url: str
     subscription_url: str
 
