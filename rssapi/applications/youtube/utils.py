@@ -11,6 +11,7 @@ from googleapiclient.discovery import build
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
 from rssapi.utils.basic import URLToolkit
+from rssapi.utils.network import retry_http
 
 logger = logging.getLogger(__file__)
 
@@ -38,10 +39,15 @@ def _get_youtube_service(api_key: str):
     return build("youtube", "v3", developerKey=api_key)
 
 
+@retry_http(max_attempts=5, retry_backoff_seconds=0, retry_on_status=lambda status: status >= 300)
+def fetch_youtube_rss_xml(url: str) -> httpx.Response:
+    return httpx.get(url, timeout=15)
+
+
 def _fetch_videos_via_rss(channel_id: str, max_results: int = 20) -> list[YoutubeVideoSnippet]:
     """通过 YouTube 公开 RSS Feed 获取频道最新视频，不消耗 API 配额"""
     feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
-    resp = httpx.get(feed_url, timeout=15)
+    resp = fetch_youtube_rss_xml(feed_url)
     if resp.is_error:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
 
