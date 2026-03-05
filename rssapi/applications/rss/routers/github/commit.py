@@ -72,10 +72,11 @@ async def fetch_feeds(owner: str, repo: str, token: str | None, per_page: int, p
         commit_list: list[CommitItemSchema] = [CommitItemSchema.model_construct(**x) for x in res.json()]
 
     for commit in commit_list:
-        commit.author = AuthorSchema(**cast(dict, commit.author))
         commit.commit = CommitSchema(**cast(dict, commit.commit))
-        assert commit.commit.author
-        assert commit.author
+        if commit.author is not None:
+            commit.author = AuthorSchema(**cast(dict, commit.author))
+        if not commit.commit.author:
+            continue
         payload: dict[str, Any] = {
             "id": f"github-commits-{owner}-{repo}-{commit.sha}",
             "url": commit.html_url,
@@ -84,9 +85,9 @@ async def fetch_feeds(owner: str, repo: str, token: str | None, per_page: int, p
             "date_published": commit.commit.author.date,
             "date_modified": commit.commit.author.date,
             "author": {
-                "url": commit.author.html_url,
-                "name": commit.author.login,
-                "avatar": commit.author.avatar_url,
+                "url": commit.author.html_url if commit.author else None,
+                "name": commit.author.login if commit.author else None,
+                "avatar": commit.author.avatar_url if commit.author else None,
             },
         }
         items.append(JSONFeedItem(**payload))
