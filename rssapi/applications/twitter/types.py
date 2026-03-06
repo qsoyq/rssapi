@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field
+from datetime import datetime
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class TweetAuthor(BaseModel):
@@ -44,5 +46,15 @@ class Tweet(BaseModel):
     lang: str | None = None
     score: float = 0.0
     quoted_tweet: QuotedTweet | None = Field(default=None, alias="quotedTweet")
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def normalize_created_at(cls, value: str) -> str:
+        if not isinstance(value, str):
+            return value
+        try:
+            return datetime.strptime(value, "%a %b %d %H:%M:%S %z %Y").isoformat()
+        except ValueError:
+            return value
 
     model_config = {"populate_by_name": True}
