@@ -73,6 +73,7 @@ async def posts(
     }
     if items and items[0].author:
         feed["author"] = items[0].author
+        feed["title"] = items[0].author.name
 
     if items and items[0].author and items[0].author.avatar:
         feed["icon"] = feed["favicon"] = items[0].author.avatar
