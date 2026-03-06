@@ -1,6 +1,6 @@
 [project]
 name = "rssapi"
-version = "0.1.21"
+version = "0.1.22"
 description = "RSS subscription tool"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -184,6 +184,7 @@ module = [
     "playwright.*",
     "proto.*",
     "googleapiclient.*",
+    "typer_utils.*",
 ]
 ignore_missing_imports = true
 follow_untyped_imports = true

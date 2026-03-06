@@ -1,0 +1,48 @@
+from pydantic import BaseModel, Field
+
+
+class TweetAuthor(BaseModel):
+    id: str | None = None
+    name: str
+    screen_name: str = Field(alias="screenName")
+    profile_image_url: str | None = Field(default=None, alias="profileImageUrl")
+    verified: bool | None = None
+
+
+class TweetMetrics(BaseModel):
+    likes: int = 0
+    retweets: int = 0
+    replies: int = 0
+    quotes: int = 0
+    views: int = 0
+    bookmarks: int = 0
+
+
+class TweetMedia(BaseModel):
+    type: str
+    url: str
+    width: int
+    height: int
+
+
+class QuotedTweet(BaseModel):
+    id: str
+    text: str
+    author: TweetAuthor
+
+
+class Tweet(BaseModel):
+    id: str
+    text: str
+    author: TweetAuthor
+    metrics: TweetMetrics
+    created_at: str = Field(alias="createdAt")
+    media: list[TweetMedia] = Field(default_factory=list)
+    urls: list[str] = Field(default_factory=list)
+    is_retweet: bool = Field(default=False, alias="isRetweet")
+    retweeted_by: str | None = Field(default=None, alias="retweetedBy")
+    lang: str | None = None
+    score: float = 0.0
+    quoted_tweet: QuotedTweet | None = Field(default=None, alias="quotedTweet")
+
+    model_config = {"populate_by_name": True}

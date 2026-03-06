@@ -55,6 +55,7 @@ repos:
                 - types-python-dateutil
                 - jwt
                 - google-api-python-client
+                - typer-utils@git+https://github.com/qsoyq/typer_utils
 
     - repo: https://github.com/astral-sh/ruff-pre-commit
       rev: v0.14.14
