@@ -59,7 +59,7 @@ def content_html_from_tweet(tweet: Tweet) -> str:
         content_html = f"<p>{html.escape(tweet.text)}</p>"
     for m in tweet.media:
         match m.type:
-            case "photo":
+            case "photo" | "animated_gif":
                 content_html += f'<img src="{m.url}" width="{m.width}" height="{m.height}" />'
             case "video":
                 content_html += (
