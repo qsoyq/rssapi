@@ -23,8 +23,10 @@ class AuthorScreenNameMapping:
         return cls._mapping.get(author_name)
 
 
-def title_from_text_by_delimiter_priority(text: str, truncation_chars: Sequence[str] = ("\n", "。")) -> str:
+def title_from_text_by_delimiter_priority(text: str, truncation_chars: Sequence[str] | None = None) -> str:
     """Truncate text using the first matching delimiter in priority order."""
+    if truncation_chars is None:
+        truncation_chars = ("\n", ".", "。")
     cutoff = len(text)
     for char in truncation_chars:
         index = text.find(char)
