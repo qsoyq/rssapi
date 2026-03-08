@@ -6,7 +6,11 @@ from asyncache import cached
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
-from rssapi.applications.twitter.utils import content_html_from_tweet, fetch_user_posts
+from rssapi.applications.twitter.utils import (
+    content_html_from_tweet,
+    fetch_user_posts,
+    title_from_text_by_delimiter_priority,
+)
 from rssapi.utils.cache import RandomTTLCache
 
 router = APIRouter(tags=["RSS"], prefix="/rss/twitter")
@@ -38,7 +42,7 @@ async def fetch_jsonfeed_items(screen_name: str, max_tweets: int = 20) -> list[J
                 {
                     "id": tweet.id,
                     "url": f"https://x.com/{screen_name}/status/{tweet.id}",
-                    "title": tweet.text.split("\n")[0],
+                    "title": title_from_text_by_delimiter_priority(tweet.text),
                     "content_html": content_html_from_tweet(tweet),
                     "date_published": tweet.created_at,
                     "author": {

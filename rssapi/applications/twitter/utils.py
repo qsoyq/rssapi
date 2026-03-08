@@ -2,12 +2,24 @@ import asyncio
 import html
 import json
 import logging
+from collections.abc import Sequence
 
 from typer_utils.utils import is_cmd_exists
 
 from rssapi.applications.twitter.types import Tweet
 
 logger = logging.getLogger(__file__)
+
+
+def title_from_text_by_delimiter_priority(text: str, truncation_chars: Sequence[str] = ("\n", "。")) -> str:
+    """Truncate text using the first matching delimiter in priority order."""
+    cutoff = len(text)
+    for char in truncation_chars:
+        index = text.find(char)
+        if index != -1:
+            cutoff = min(cutoff, index)
+            break
+    return text[:cutoff]
 
 
 async def fetch_user_posts(screen_name: str, max_tweets: int) -> list[Tweet]:

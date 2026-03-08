@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -21,10 +22,10 @@ class TweetMetrics(BaseModel):
 
 
 class TweetMedia(BaseModel):
-    type: str
+    type: Literal["photo", "video", "animated_gif"]  # "photo" | "video" | "animated_gif"
     url: str
-    width: int
-    height: int
+    width: Optional[int] = None
+    height: Optional[int] = None
 
 
 class QuotedTweet(BaseModel):
