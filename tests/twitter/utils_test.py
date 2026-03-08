@@ -4,6 +4,7 @@ from rssapi.applications.twitter.types import Tweet
 from rssapi.applications.twitter.utils import (
     content_html_from_tweet,
     text_without_http_links,
+    text_without_tco_links,
     title_from_text_by_delimiter_priority,
 )
 
@@ -36,6 +37,27 @@ def test_text_without_http_links_removes_multiple_links_and_normalizes_spaces():
     )
 
 
+def test_text_without_tco_links_removes_only_strict_tco_links():
+    assert (
+        text_without_tco_links(
+            "hello https://t.co/DlBA3uySC1 world https://example.com/a "
+            "https://nott.co/DlBA3uySC1 https://t.co.uk/DlBA3uySC1"
+        )
+        == "hello world https://example.com/a https://nott.co/DlBA3uySC1 https://t.co.uk/DlBA3uySC1"
+    )
+
+
+@pytest.mark.parametrize(
+    ("func", "text", "expected"),
+    [
+        (text_without_http_links, "hello \t  https://example.com \n\tworld", "hello\nworld"),
+        (text_without_tco_links, "hello \t  https://t.co/DlBA3uySC1 \n\tworld", "hello\nworld"),
+    ],
+)
+def test_link_removal_normalizes_whitespace_around_newlines(func, text: str, expected: str):
+    assert func(text) == expected
+
+
 def test_content_html_from_tweet_renders_photo_and_animated_gif_as_image():
     tweet = Tweet.model_validate(
         {
@@ -58,6 +80,21 @@ def test_content_html_from_tweet_renders_photo_and_animated_gif_as_image():
     assert content_html_from_tweet(tweet) == (
         '<p>hello</p><img src="https://example.com/animated.gif" width="320" height="180" />'
     )
+
+
+def test_content_html_from_tweet_removes_tco_links_from_text():
+    tweet = Tweet.model_validate(
+        {
+            "id": "1",
+            "text": "hello https://t.co/DlBA3uySC1 world https://example.com/keep",
+            "author": {"name": "tester", "screenName": "tester"},
+            "metrics": {},
+            "createdAt": "2025-01-01T00:00:00+00:00",
+            "media": [],
+        }
+    )
+
+    assert content_html_from_tweet(tweet) == "<p>hello world https://example.com/keep</p>"
 
     tweet = Tweet.model_validate(
         {

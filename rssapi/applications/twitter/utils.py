@@ -12,6 +12,7 @@ from rssapi.applications.twitter.types import Tweet
 logger = logging.getLogger(__file__)
 
 HTTP_URL_PATTERN = re.compile(r"https?://\S+")
+TCO_URL_PATTERN = re.compile(r"https://t\.co/\S+")
 
 
 class AuthorScreenNameMapping:
@@ -40,13 +41,23 @@ def title_from_text_by_delimiter_priority(text: str, truncation_chars: Sequence[
     return text[:cutoff]
 
 
-def text_without_http_links(text: str) -> str:
-    """Remove all http/https links from text while keeping surrounding text readable."""
-    text = HTTP_URL_PATTERN.sub("", text)
+def _normalize_text_whitespace(text: str) -> str:
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r"[ \t]+\n", "\n", text)
     text = re.sub(r"\n[ \t]+", "\n", text)
     return text.strip()
+
+
+def text_without_http_links(text: str) -> str:
+    """Remove all http/https links from text while keeping surrounding text readable."""
+    text = HTTP_URL_PATTERN.sub("", text)
+    return _normalize_text_whitespace(text)
+
+
+def text_without_tco_links(text: str) -> str:
+    """Remove all https://t.co links from text while keeping surrounding text readable."""
+    text = TCO_URL_PATTERN.sub("", text)
+    return _normalize_text_whitespace(text)
 
 
 async def fetch_user_posts(screen_name: str, max_tweets: int) -> list[Tweet]:
@@ -95,7 +106,9 @@ async def fetch_user_posts(screen_name: str, max_tweets: int) -> list[Tweet]:
 def content_html_from_tweet(tweet: Tweet) -> str:
     content_html = ""
     if tweet.text:
-        content_html = f"<p>{html.escape(tweet.text)}</p>"
+        text = text_without_tco_links(tweet.text)
+        content_html = f"<p>{html.escape(text)}</p>"
+
     for m in tweet.media:
         match m.type:
             case "photo" | "animated_gif":
