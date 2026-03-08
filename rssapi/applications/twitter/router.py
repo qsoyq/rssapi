@@ -1,64 +1,15 @@
-import json
-import logging
-from typing import Any
+from typing import Any, Literal
 
-from asyncache import cached
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
 
-from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
-from rssapi.applications.twitter.utils import (
-    AuthorScreenNameMapping,
-    content_html_from_tweet,
-    fetch_user_posts,
-    text_without_http_links,
-    title_from_text_by_delimiter_priority,
+from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed
+from rssapi.applications.twitter.feed import (
+    fetch_feed_jsonfeed_items,
+    fetch_user_posts_jsonfeed_items,
 )
-from rssapi.utils.cache import RandomTTLCache
+from rssapi.applications.twitter.utils import AuthorScreenNameMapping
 
 router = APIRouter(tags=["RSS"], prefix="/rss/twitter")
-
-logger = logging.getLogger(__file__)
-
-
-@cached(RandomTTLCache(4096, 7200))
-async def fetch_jsonfeed_items(screen_name: str, max_tweets: int) -> list[JSONFeedItem]:
-    items = []
-    try:
-        posts = await fetch_user_posts(screen_name, max_tweets)
-    except json.JSONDecodeError as e:
-        logger.error(f"failed to parse twitter CLI output: {e}")
-        raise HTTPException(status_code=500, detail="Failed to parse twitter CLI output")
-    except Exception as e:
-        logger.error(f"failed to fetch twitter user posts: {e}")
-        status_code = 429 if "429" in str(e) else 500
-        raise HTTPException(status_code=status_code, detail=str(e))
-    logger.info(f"fetched {len(posts)} posts for {screen_name}")
-
-    if len(posts) == 0:
-        raise HTTPException(status_code=404, detail="No posts found")
-
-    for tweet in posts:
-        AuthorScreenNameMapping.set(tweet.author.name, tweet.author.screen_name)
-        title = tweet.text
-        title = text_without_http_links(title)
-        title = title_from_text_by_delimiter_priority(title)
-        items.append(
-            JSONFeedItem.model_validate(
-                {
-                    "id": tweet.id,
-                    "url": f"https://x.com/{screen_name}/status/{tweet.id}",
-                    "title": title,
-                    "content_html": content_html_from_tweet(tweet),
-                    "date_published": tweet.created_at,
-                    "author": {
-                        "name": tweet.author.name,
-                        "url": f"https://x.com/{tweet.author.screen_name}",
-                        "avatar": tweet.author.profile_image_url,
-                    },
-                }
-            )
-        )
-    return items
 
 
 @router.get("/{screen_name}/posts", response_model=JSONFeed, summary="Twitter User Posts RSS")
@@ -68,7 +19,7 @@ async def posts(
     max_tweets: int = Query(50, description="最大推文数"),
 ):
     """Twitter Timeline RSS"""
-    items = await fetch_jsonfeed_items(screen_name, max_tweets)
+    items = await fetch_user_posts_jsonfeed_items(screen_name, max_tweets)
     host = req.url.hostname
     feed: dict[str, Any] = {
         "version": "https://jsonfeed.org/version/1",
@@ -89,4 +40,42 @@ async def posts(
                 feed["icon"] = feed["favicon"] = item.author.avatar
                 break
 
+    return feed
+
+
+@router.get("/user/timeline/{feed_type}", response_model=JSONFeed, summary="Twitter User Timeline RSS")
+async def timeline(
+    req: Request,
+    feed_type: Literal["for-you", "following"] = Path(..., description="Timeline 类型"),
+    max_tweets: int = Query(50, description="最大推文数"),
+    cookies: str | None = Query(None, description="Twitter 用户 cookie"),
+    x_twitter_cookie: str | None = Header(None, description="Twitter 用户 cookie", alias="X-Twitter-Cookie"),
+):
+    """Twitter Timeline RSS (for-you / following)
+
+    - for-you: 获取用户的时间线
+    - following: 获取用户关注的用户的时间线
+
+    - 如果 cookies 为空，则从 X-Twitter-Cookie 头中获取
+    - 如果 cookies 和 X-Twitter-Cookie 头都为空，则返回 401 错误
+    """
+    if cookies is None and x_twitter_cookie is not None:
+        cookies = x_twitter_cookie
+
+    if cookies is None:
+        raise HTTPException(status_code=401, detail="cookies or X-Twitter-Cookie are required")
+
+    items = await fetch_feed_jsonfeed_items(max_tweets, cookies, feed_type)
+    host = req.url.hostname
+    feed: dict[str, Any] = {
+        "version": "https://jsonfeed.org/version/1",
+        "title": f"Twitter Timeline ({feed_type})",
+        "description": "",
+        "home_page_url": "https://x.com/home",
+        "feed_url": f"{req.url.scheme}://{host}{req.url.path}?{req.url.query}",
+        "icon": "https://abs.twimg.com/favicons/twitter-pip.3.ico",
+        "favicon": "https://abs.twimg.com/favicons/twitter-pip.3.ico",
+        "items": items,
+    }
+    # TODO: 通过twitter_cli 读取当前用户 profile 信息
     return feed

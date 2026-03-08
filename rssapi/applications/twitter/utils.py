@@ -2,6 +2,7 @@ import asyncio
 import html
 import json
 import logging
+import os
 import re
 from collections.abc import Sequence
 
@@ -58,6 +59,53 @@ def text_without_tco_links(text: str) -> str:
     """Remove all https://t.co links from text while keeping surrounding text readable."""
     text = TCO_URL_PATTERN.sub("", text)
     return _normalize_text_whitespace(text)
+
+
+async def fetch_feed(max_tweets: int, cookies: str, feed_type: str = "for-you") -> list[Tweet]:
+    if not is_cmd_exists("twitter"):
+        raise RuntimeError("twitter CLI is not installed")
+    environ = os.environ.copy()
+    environ["TWITTER_COOKIE"] = cookies
+    proc = await asyncio.create_subprocess_exec(
+        "twitter",
+        "feed",
+        "-t",
+        feed_type,
+        "-n",
+        str(max_tweets),
+        "--json",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=environ,
+    )
+    stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        stdout_text = stdout.decode().strip()
+        stderr_text = stderr.decode().strip()
+        details = []
+        if stdout_text:
+            details.append(f"stdout={stdout_text}")
+        if stderr_text:
+            details.append(f"stderr={stderr_text}")
+
+        message = f"twitter CLI failed (code {proc.returncode})"
+        if details:
+            message = f"{message}: {'; '.join(details)}"
+
+        raise RuntimeError(message)
+
+    output = None
+    try:
+        output = stdout.decode()
+        if "Fetched" in output and "[" in output:
+            output = output[output.index("[") :]
+        data = json.loads(output)
+    except json.JSONDecodeError as e:
+        logger.warning(f"failed to parse twitter CLI output: {e}, output: {output}")
+        raise
+
+    return [Tweet.model_validate(item) for item in data]
 
 
 async def fetch_user_posts(screen_name: str, max_tweets: int) -> list[Tweet]:
