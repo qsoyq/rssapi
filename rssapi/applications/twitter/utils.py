@@ -11,6 +11,18 @@ from rssapi.applications.twitter.types import Tweet
 logger = logging.getLogger(__file__)
 
 
+class AuthorScreenNameMapping:
+    _mapping: dict[str, str] = {}
+
+    @classmethod
+    def set(cls, author_name: str, screen_name: str) -> None:
+        cls._mapping[author_name] = screen_name
+
+    @classmethod
+    def get(cls, author_name: str) -> str | None:
+        return cls._mapping.get(author_name)
+
+
 def title_from_text_by_delimiter_priority(text: str, truncation_chars: Sequence[str] = ("\n", "。")) -> str:
     """Truncate text using the first matching delimiter in priority order."""
     cutoff = len(text)

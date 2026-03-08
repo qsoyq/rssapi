@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Path, Query, Request
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.applications.twitter.utils import (
+    AuthorScreenNameMapping,
     content_html_from_tweet,
     fetch_user_posts,
     title_from_text_by_delimiter_priority,
@@ -19,7 +20,7 @@ logger = logging.getLogger(__file__)
 
 
 @cached(RandomTTLCache(4096, 1800))
-async def fetch_jsonfeed_items(screen_name: str, max_tweets: int = 20) -> list[JSONFeedItem]:
+async def fetch_jsonfeed_items(screen_name: str, max_tweets: int) -> list[JSONFeedItem]:
     items = []
     try:
         posts = await fetch_user_posts(screen_name, max_tweets)
@@ -34,9 +35,8 @@ async def fetch_jsonfeed_items(screen_name: str, max_tweets: int = 20) -> list[J
     if len(posts) == 0:
         raise HTTPException(status_code=404, detail="No posts found")
 
-    posts = [p for p in posts if p.author.screen_name == screen_name]
-
     for tweet in posts:
+        AuthorScreenNameMapping.set(tweet.author.name, tweet.author.screen_name)
         items.append(
             JSONFeedItem.model_validate(
                 {
@@ -60,7 +60,7 @@ async def fetch_jsonfeed_items(screen_name: str, max_tweets: int = 20) -> list[J
 async def posts(
     req: Request,
     screen_name: str = Path(..., description="Twitter 用户名"),
-    max_tweets: int = Query(20, description="最大推文数"),
+    max_tweets: int = Query(50, description="最大推文数"),
 ):
     """Twitter Timeline RSS"""
     items = await fetch_jsonfeed_items(screen_name, max_tweets)
@@ -75,10 +75,13 @@ async def posts(
         "favicon": "https://abs.twimg.com/favicons/twitter-pip.3.ico",
         "items": items,
     }
-    if items and items[0].author:
-        feed["author"] = items[0].author
-        feed["title"] = items[0].author.name
+    for item in items:
+        if item.author and item.author.name:
+            _screen_name = AuthorScreenNameMapping.get(item.author.name)
+            if _screen_name is not None and _screen_name == screen_name:
+                feed["author"] = item.author
+                feed["title"] = item.author.name
+                feed["icon"] = feed["favicon"] = item.author.avatar
+                break
 
-    if items and items[0].author and items[0].author.avatar:
-        feed["icon"] = feed["favicon"] = items[0].author.avatar
     return feed
