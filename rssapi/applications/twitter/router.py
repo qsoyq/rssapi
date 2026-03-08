@@ -10,6 +10,7 @@ from rssapi.applications.twitter.utils import (
     AuthorScreenNameMapping,
     content_html_from_tweet,
     fetch_user_posts,
+    text_without_http_links,
     title_from_text_by_delimiter_priority,
 )
 from rssapi.utils.cache import RandomTTLCache
@@ -19,7 +20,7 @@ router = APIRouter(tags=["RSS"], prefix="/rss/twitter")
 logger = logging.getLogger(__file__)
 
 
-@cached(RandomTTLCache(4096, 1800))
+@cached(RandomTTLCache(4096, 7200))
 async def fetch_jsonfeed_items(screen_name: str, max_tweets: int) -> list[JSONFeedItem]:
     items = []
     try:
@@ -37,12 +38,15 @@ async def fetch_jsonfeed_items(screen_name: str, max_tweets: int) -> list[JSONFe
 
     for tweet in posts:
         AuthorScreenNameMapping.set(tweet.author.name, tweet.author.screen_name)
+        title = tweet.text
+        title = text_without_http_links(title)
+        title = title_from_text_by_delimiter_priority(title)
         items.append(
             JSONFeedItem.model_validate(
                 {
                     "id": tweet.id,
                     "url": f"https://x.com/{screen_name}/status/{tweet.id}",
-                    "title": title_from_text_by_delimiter_priority(tweet.text),
+                    "title": title,
                     "content_html": content_html_from_tweet(tweet),
                     "date_published": tweet.created_at,
                     "author": {

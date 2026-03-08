@@ -1,29 +1,39 @@
+import pytest
+
 from rssapi.applications.twitter.types import Tweet
 from rssapi.applications.twitter.utils import (
     content_html_from_tweet,
+    text_without_http_links,
     title_from_text_by_delimiter_priority,
 )
 
 
-def test_title_from_text_by_delimiter_priority_without_truncation_chars():
-    text = "hello world"
-    assert title_from_text_by_delimiter_priority(text) == text
+@pytest.mark.parametrize(
+    ("text", "expected", "truncation_chars"),
+    [
+        ("hello world", "hello world", None),
+        ("hello\nworld", "hello", None),
+        ("第一句。第二句", "第一句", None),
+        ("Is this working? Yes", "Is this working", None),
+        ("Breaking news! Details below", "Breaking news", None),
+        ("第一句。\n第二句", "第一句。", None),
+        ("hello!world", "hello", ("!",)),
+        (
+            "Mole now supports Windows. The first pre-release is here. To keep the Mac version simple and lightweight, the Windows support lives in a separate branch. ",
+            "Mole now supports Windows",
+            None,
+        ),
+    ],
+)
+def test_title_from_text_by_delimiter_priority(text: str, expected: str, truncation_chars: tuple[str, ...] | None):
+    assert title_from_text_by_delimiter_priority(text, truncation_chars=truncation_chars) == expected
 
 
-def test_title_from_text_by_delimiter_priority_truncates_on_newline():
-    assert title_from_text_by_delimiter_priority("hello\nworld") == "hello"
-
-
-def test_title_from_text_by_delimiter_priority_truncates_on_chinese_period():
-    assert title_from_text_by_delimiter_priority("第一句。第二句") == "第一句"
-
-
-def test_title_from_text_by_delimiter_priority_prefers_delimiter_order():
-    assert title_from_text_by_delimiter_priority("第一句。\n第二句") == "第一句。"
-
-
-def test_title_from_text_by_delimiter_priority_supports_custom_truncation_chars():
-    assert title_from_text_by_delimiter_priority("hello!world", truncation_chars=("!",)) == "hello"
+def test_text_without_http_links_removes_multiple_links_and_normalizes_spaces():
+    assert (
+        text_without_http_links("hello https://example.com world http://test.com/path?q=1\nnext line")
+        == "hello world\nnext line"
+    )
 
 
 def test_content_html_from_tweet_renders_photo_and_animated_gif_as_image():

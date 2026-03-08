@@ -2,6 +2,7 @@ import asyncio
 import html
 import json
 import logging
+import re
 from collections.abc import Sequence
 
 from typer_utils.utils import is_cmd_exists
@@ -9,6 +10,8 @@ from typer_utils.utils import is_cmd_exists
 from rssapi.applications.twitter.types import Tweet
 
 logger = logging.getLogger(__file__)
+
+HTTP_URL_PATTERN = re.compile(r"https?://\S+")
 
 
 class AuthorScreenNameMapping:
@@ -26,7 +29,8 @@ class AuthorScreenNameMapping:
 def title_from_text_by_delimiter_priority(text: str, truncation_chars: Sequence[str] | None = None) -> str:
     """Truncate text using the first matching delimiter in priority order."""
     if truncation_chars is None:
-        truncation_chars = ("\n", ".", "。")
+        truncation_chars = ("\n", "?", "!", ".", "。")
+
     cutoff = len(text)
     for char in truncation_chars:
         index = text.find(char)
@@ -34,6 +38,15 @@ def title_from_text_by_delimiter_priority(text: str, truncation_chars: Sequence[
             cutoff = min(cutoff, index)
             break
     return text[:cutoff]
+
+
+def text_without_http_links(text: str) -> str:
+    """Remove all http/https links from text while keeping surrounding text readable."""
+    text = HTTP_URL_PATTERN.sub("", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n[ \t]+", "\n", text)
+    return text.strip()
 
 
 async def fetch_user_posts(screen_name: str, max_tweets: int) -> list[Tweet]:
@@ -52,7 +65,19 @@ async def fetch_user_posts(screen_name: str, max_tweets: int) -> list[Tweet]:
     stdout, stderr = await proc.communicate()
 
     if proc.returncode != 0:
-        raise RuntimeError(f"twitter CLI failed (code {proc.returncode}): {stderr.decode().strip()}")
+        stdout_text = stdout.decode().strip()
+        stderr_text = stderr.decode().strip()
+        details = []
+        if stdout_text:
+            details.append(f"stdout={stdout_text}")
+        if stderr_text:
+            details.append(f"stderr={stderr_text}")
+
+        message = f"twitter CLI failed (code {proc.returncode})"
+        if details:
+            message = f"{message}: {'; '.join(details)}"
+
+        raise RuntimeError(message)
 
     output = None
     try:
