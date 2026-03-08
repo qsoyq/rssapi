@@ -30,7 +30,8 @@ async def fetch_jsonfeed_items(screen_name: str, max_tweets: int) -> list[JSONFe
         raise HTTPException(status_code=500, detail="Failed to parse twitter CLI output")
     except Exception as e:
         logger.error(f"failed to fetch twitter user posts: {e}")
-        raise HTTPException(status_code=500, detail="Failed to fetch twitter user posts")
+        status_code = 429 if "429" in str(e) else 500
+        raise HTTPException(status_code=status_code, detail=str(e))
     logger.info(f"fetched {len(posts)} posts for {screen_name}")
 
     if len(posts) == 0:
