@@ -53,6 +53,7 @@ dependencies = [
     "typer-utils@git+https://github.com/qsoyq/typer_utils",
     "google-api-python-client>=2.190.0",
     "httpx-disable-verify@git+https://github.com/qsoyq/httpx-disable-verify",
+    "twitter-cli@git+https://github.com/qsoyq/twitter-cli.git",
 ]
 
 [project.scripts]
@@ -195,6 +196,7 @@ markers = ["nga_delay: add a delay before running the marked tests.d')"]
 [tool.uv.sources]
 typer-utils = { git = "https://github.com/qsoyq/typer_utils" }
 httpx-disable-verify = { git = "https://github.com/qsoyq/httpx-disable-verify.git" }
+twitter-cli = { git = "https://github.com/qsoyq/twitter-cli.git", rev = "0.1.3" }
 
 [tool.isort]
 profile = "hug"

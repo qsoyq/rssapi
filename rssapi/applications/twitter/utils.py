@@ -64,8 +64,10 @@ def text_without_tco_links(text: str) -> str:
 async def fetch_feed(max_tweets: int, cookies: str, feed_type: str = "for-you") -> list[Tweet]:
     if not is_cmd_exists("twitter"):
         raise RuntimeError("twitter CLI is not installed")
-    environ = os.environ.copy()
+    path_var = os.environ.get("PATH", "")
+    environ = {"PATH": path_var}
     environ["TWITTER_COOKIE"] = cookies
+    environ["TWITTER_CLI_COOKIE"] = cookies
     proc = await asyncio.create_subprocess_exec(
         "twitter",
         "feed",
