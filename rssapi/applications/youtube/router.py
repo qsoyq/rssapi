@@ -45,6 +45,13 @@ def channel_feed(
     except googleapiclient.errors.HttpError as e:
         logger.warning(f"[YouTube.RSS] Error fetching {handle} channel feed: {e.reason}")
         raise HTTPException(status_code=e.status_code, detail=e.reason)
+    except (
+        TimeoutError,
+        OSError,
+        ConnectionError,
+    ) as e:  # only reaches here from RSS fetch; channel API converts these to HTTPException internally
+        logger.warning(f"[YouTube.RSS] Network error fetching {handle} channel feed: {e}")
+        raise HTTPException(status_code=504, detail=f"YouTube API request timed out: {e}")
 
     feed = JSONFeed.model_validate(
         {

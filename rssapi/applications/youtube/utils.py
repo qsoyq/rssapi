@@ -3,6 +3,7 @@ import threading
 from functools import lru_cache
 from typing import TypedDict
 
+import httplib2
 import httpx
 import xmltodict
 from cachetools import TTLCache, cached
@@ -16,6 +17,8 @@ from rssapi.utils.network import retry_http
 logger = logging.getLogger(__file__)
 
 _channel_feed_cache: TTLCache = TTLCache(maxsize=4096, ttl=3600)
+
+YOUTUBE_API_TIMEOUT = 15
 
 
 class YoutubeChannelSnippet(TypedDict):
@@ -36,7 +39,8 @@ class YoutubeVideoSnippet(TypedDict):
 
 @lru_cache(maxsize=4)
 def _get_youtube_service(api_key: str):
-    return build("youtube", "v3", developerKey=api_key)
+    http = httplib2.Http(timeout=YOUTUBE_API_TIMEOUT)
+    return build("youtube", "v3", developerKey=api_key, http=http)
 
 
 @retry_http(max_attempts=5, retry_backoff_seconds=0, retry_on_status=lambda status: status >= 300)
@@ -79,10 +83,20 @@ def _fetch_videos_via_rss(channel_id: str, max_results: int = 20) -> list[Youtub
 
 
 @lru_cache(maxsize=4096)
-def fetch_channel_info_by_handle(api_key: str, handle: str) -> YoutubeChannelSnippet | None:
+def fetch_channel_info_by_handle(api_key: str, handle: str, _max_retries: int = 3) -> YoutubeChannelSnippet | None:
     """通过 YouTube handle（如 @zhongwenze）获取频道信息（channels.list 仅消耗 1 单位配额）"""
     youtube = _get_youtube_service(api_key)
-    resp = youtube.channels().list(part="snippet,contentDetails", forHandle=handle).execute()
+    for attempt in range(1, _max_retries + 1):
+        try:
+            resp = youtube.channels().list(part="snippet,contentDetails", forHandle=handle).execute()
+            break
+        except (TimeoutError, OSError, ConnectionError) as e:
+            logger.warning(f"[YouTube.API] channels.list timeout/network error, retry {attempt}/{_max_retries}: {e}")
+            if attempt == _max_retries:
+                raise HTTPException(
+                    status_code=504, detail=f"YouTube API request timed out after {_max_retries} retries"
+                ) from e
+
     items = resp.get("items", [])
     if not items:
         return None

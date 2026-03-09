@@ -53,6 +53,7 @@ repos:
                 - types-requests
                 - types-dateparser
                 - types-python-dateutil
+                - types-httplib2
                 - jwt
                 - google-api-python-client
                 - typer-utils@git+https://github.com/qsoyq/typer_utils
