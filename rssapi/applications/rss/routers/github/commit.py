@@ -69,7 +69,11 @@ async def fetch_feeds(owner: str, repo: str, token: str | None, per_page: int, p
         res = await client.get(url, params=params)
         if res.is_error:
             raise HTTPException(status_code=res.status_code, detail=res.text)
-        commit_list: list[CommitItemSchema] = [CommitItemSchema.model_construct(**x) for x in res.json()]
+        body = res.json()
+        if not isinstance(body, list):
+            logger.error(f"Invalid response body: {body}")
+            raise HTTPException(status_code=502, detail=f"github API error, body: {body}")
+        commit_list: list[CommitItemSchema] = [CommitItemSchema.model_construct(**x) for x in body]
 
     for commit in commit_list:
         commit.commit = CommitSchema(**cast(dict, commit.commit))
