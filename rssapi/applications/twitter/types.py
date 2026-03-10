@@ -11,6 +11,8 @@ class TweetAuthor(BaseModel):
     profile_image_url: str | None = Field(default=None, alias="profileImageUrl")
     verified: bool | None = None
 
+    model_config = {"populate_by_name": True}
+
 
 class TweetMetrics(BaseModel):
     likes: int = 0
@@ -45,7 +47,7 @@ class Tweet(BaseModel):
     is_retweet: bool = Field(default=False, alias="isRetweet")
     retweeted_by: str | None = Field(default=None, alias="retweetedBy")
     lang: str | None = None
-    score: float = 0.0
+    score: float | None = None
     quoted_tweet: QuotedTweet | None = Field(default=None, alias="quotedTweet")
 
     @field_validator("created_at", mode="before")

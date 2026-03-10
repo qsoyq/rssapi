@@ -1,12 +1,15 @@
 import asyncio
+import contextlib
 import html
-import json
 import logging
-import os
 import re
 from collections.abc import Sequence
+from dataclasses import asdict
+from typing import Any, Iterator
 
-from typer_utils.utils import is_cmd_exists
+import twitter_cli.auth as twitter_auth
+from twitter_cli.client import TwitterClient
+from twitter_cli.config import load_config
 
 from rssapi.applications.twitter.types import Tweet
 
@@ -61,96 +64,107 @@ def text_without_tco_links(text: str) -> str:
     return _normalize_text_whitespace(text)
 
 
-async def fetch_feed(max_tweets: int, cookies: str, feed_type: str = "for-you") -> list[Tweet]:
-    if not is_cmd_exists("twitter"):
-        raise RuntimeError("twitter CLI is not installed")
-    path_var = os.environ.get("PATH", "")
-    environ = {"PATH": path_var}
-    environ["TWITTER_COOKIE"] = cookies
-    environ["TWITTER_CLI_COOKIE"] = cookies
-    proc = await asyncio.create_subprocess_exec(
-        "twitter",
-        "feed",
-        "-t",
-        feed_type,
-        "-n",
-        str(max_tweets),
-        "--json",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=environ,
-    )
-    stdout, stderr = await proc.communicate()
+def _parse_cookie_header(cookies: str) -> dict[str, str]:
+    parsed_cookies: dict[str, str] = {}
+    for cookie in cookies.split(";"):
+        chunk = cookie.strip()
+        if not chunk:
+            continue
 
-    if proc.returncode != 0:
-        stdout_text = stdout.decode().strip()
-        stderr_text = stderr.decode().strip()
-        details = []
-        if stdout_text:
-            details.append(f"stdout={stdout_text}")
-        if stderr_text:
-            details.append(f"stderr={stderr_text}")
+        name, sep, value = chunk.partition("=")
+        if not sep:
+            continue
 
-        message = f"twitter CLI failed (code {proc.returncode})"
-        if details:
-            message = f"{message}: {'; '.join(details)}"
+        parsed_cookies[name.strip()] = value.strip()
+    return parsed_cookies
 
-        raise RuntimeError(message)
 
-    output = None
+@contextlib.contextmanager
+def _mock_twitter_extract_from_browser() -> Iterator[None]:
+    original_extract_from_browser = twitter_auth.extract_from_browser
+
+    def _raise_browser_fallback_disabled() -> None:
+        raise RuntimeError("twitter_cli extract_from_browser is disabled")
+
+    twitter_auth.extract_from_browser = _raise_browser_fallback_disabled
     try:
-        output = stdout.decode()
-        if "Fetched" in output and "[" in output:
-            output = output[output.index("[") :]
-        data = json.loads(output)
-    except json.JSONDecodeError as e:
-        logger.warning(f"failed to parse twitter CLI output: {e}, output: {output}")
+        yield
+    finally:
+        twitter_auth.extract_from_browser = original_extract_from_browser
+
+
+def _build_twitter_client(
+    auth_token: str | None = None,
+    ct0: str | None = None,
+    cookie_string: str | None = None,
+) -> TwitterClient:
+    rate_limit_config = load_config().get("rateLimit")
+    if auth_token and ct0:
+        return TwitterClient(auth_token, ct0, rate_limit_config, cookie_string=cookie_string)
+
+    with _mock_twitter_extract_from_browser():
+        cookies = twitter_auth.get_cookies()
+
+    return TwitterClient(
+        cookies["auth_token"],
+        cookies["ct0"],
+        rate_limit_config,
+        cookie_string=cookies.get("cookie_string"),
+    )
+
+
+def _to_rssapi_tweets(tweets: list[Any]) -> list[Tweet]:
+    return [Tweet.model_validate(asdict(tweet)) for tweet in tweets]
+
+
+def _fetch_feed_sync(max_tweets: int, cookies: str, feed_type: str) -> list[Tweet]:
+    parsed_cookies = _parse_cookie_header(cookies)
+    auth_token = parsed_cookies.get("auth_token")
+    ct0 = parsed_cookies.get("ct0")
+    if not auth_token or not ct0:
+        raise RuntimeError("auth_token or ct0 is not found in cookies")
+
+    client = _build_twitter_client(auth_token, ct0, cookie_string=cookies)
+    if feed_type == "following":
+        tweets = client.fetch_following_feed(max_tweets)
+    else:
+        tweets = client.fetch_home_timeline(max_tweets)
+    return _to_rssapi_tweets(tweets)
+
+
+async def fetch_feed(max_tweets: int, cookies: str, feed_type: str = "for-you") -> list[Tweet]:
+    try:
+        return await asyncio.to_thread(_fetch_feed_sync, max_tweets, cookies, feed_type)
+    except Exception as e:
+        logger.warning(f"failed to fetch twitter feed: {e}")
         raise
 
-    return [Tweet.model_validate(item) for item in data]
+
+def _fetch_user_posts_sync(screen_name: str, max_tweets: int, cookies: str) -> list[Tweet]:
+    parsed_cookies = _parse_cookie_header(cookies)
+    auth_token = parsed_cookies.get("auth_token")
+    ct0 = parsed_cookies.get("ct0")
+    if not auth_token or not ct0:
+        raise RuntimeError("auth_token or ct0 is not found in cookies")
+
+    client = _build_twitter_client(auth_token, ct0, cookie_string=cookies)
+    profile = client.fetch_user(screen_name)
+    tweets = client.fetch_user_tweets(profile.id, max_tweets)
+    normalized_screen_name = screen_name.casefold()
+    rssapi_tweets = _to_rssapi_tweets(tweets)
+    return [
+        tweet
+        for tweet in rssapi_tweets
+        if tweet.is_retweet or tweet.author.screen_name.casefold() == normalized_screen_name
+    ]
 
 
-async def fetch_user_posts(screen_name: str, max_tweets: int) -> list[Tweet]:
-    if not is_cmd_exists("twitter"):
-        raise RuntimeError("twitter CLI is not installed")
-    proc = await asyncio.create_subprocess_exec(
-        "twitter",
-        "user-posts",
-        screen_name,
-        "-n",
-        str(max_tweets),
-        "--json",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc.communicate()
-
-    if proc.returncode != 0:
-        stdout_text = stdout.decode().strip()
-        stderr_text = stderr.decode().strip()
-        details = []
-        if stdout_text:
-            details.append(f"stdout={stdout_text}")
-        if stderr_text:
-            details.append(f"stderr={stderr_text}")
-
-        message = f"twitter CLI failed (code {proc.returncode})"
-        if details:
-            message = f"{message}: {'; '.join(details)}"
-
-        raise RuntimeError(message)
-
-    output = None
+async def fetch_user_posts(screen_name: str, max_tweets: int, cookies: str) -> list[Tweet]:
     try:
-        output = stdout.decode()
-        if "Fetched" in output and "[" in output:
-            output = output[output.index("[") :]
-        data = json.loads(output)
-    except json.JSONDecodeError as e:
-        logger.warning(f"failed to parse twitter CLI output: {e}, output: {output}")
-        raise e
-
-    return [Tweet.model_validate(item) for item in data]
+        return await asyncio.to_thread(_fetch_user_posts_sync, screen_name, max_tweets, cookies)
+    except Exception as e:
+        logger.warning(f"failed to fetch twitter user posts: {e}")
+        raise
 
 
 def content_html_from_tweet(tweet: Tweet) -> str:

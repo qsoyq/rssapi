@@ -17,9 +17,17 @@ async def posts(
     req: Request,
     screen_name: str = Path(..., description="Twitter 用户名"),
     max_tweets: int = Query(50, description="最大推文数"),
+    cookies: str | None = Query(None, description="Twitter 用户 cookie"),
+    x_twitter_cookie: str | None = Header(None, description="Twitter 用户 cookie", alias="X-Twitter-Cookie"),
 ):
     """Twitter Timeline RSS"""
-    items = await fetch_user_posts_jsonfeed_items(screen_name, max_tweets)
+    if cookies is None and x_twitter_cookie is not None:
+        cookies = x_twitter_cookie
+
+    if cookies is None:
+        raise HTTPException(status_code=401, detail="cookies or X-Twitter-Cookie are required")
+
+    items = await fetch_user_posts_jsonfeed_items(screen_name, max_tweets, cookies)
     host = req.url.hostname
     feed: dict[str, Any] = {
         "version": "https://jsonfeed.org/version/1",

@@ -1,7 +1,36 @@
+import sys
+import types
+from types import SimpleNamespace
+from typing import Any, cast
+
 import pytest
 
-from rssapi.applications.twitter.types import Tweet
-from rssapi.applications.twitter.utils import (
+twitter_cli_module = cast(Any, sys.modules.setdefault("twitter_cli", types.ModuleType("twitter_cli")))
+twitter_auth_module = cast(Any, sys.modules.setdefault("twitter_cli.auth", types.ModuleType("twitter_cli.auth")))
+twitter_client_module = cast(Any, sys.modules.setdefault("twitter_cli.client", types.ModuleType("twitter_cli.client")))
+twitter_config_module = cast(Any, sys.modules.setdefault("twitter_cli.config", types.ModuleType("twitter_cli.config")))
+
+if not hasattr(twitter_auth_module, "extract_from_browser"):
+    twitter_auth_module.extract_from_browser = lambda: None
+if not hasattr(twitter_auth_module, "get_cookies"):
+    twitter_auth_module.get_cookies = lambda: {}
+if not hasattr(twitter_client_module, "TwitterClient"):
+
+    class _StubTwitterClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    twitter_client_module.TwitterClient = _StubTwitterClient
+if not hasattr(twitter_config_module, "load_config"):
+    twitter_config_module.load_config = lambda: {}
+
+twitter_cli_module.auth = twitter_auth_module
+twitter_cli_module.client = twitter_client_module
+twitter_cli_module.config = twitter_config_module
+
+from rssapi.applications.twitter import utils as twitter_utils  # noqa: E402
+from rssapi.applications.twitter.types import Tweet  # noqa: E402
+from rssapi.applications.twitter.utils import (  # noqa: E402
     content_html_from_tweet,
     text_without_http_links,
     text_without_tco_links,
@@ -56,6 +85,139 @@ def test_text_without_tco_links_removes_only_strict_tco_links():
 )
 def test_link_removal_normalizes_whitespace_around_newlines(func, text: str, expected: str):
     assert func(text) == expected
+
+
+def test_parse_cookie_header_trims_entries_and_ignores_invalid_chunks():
+    assert twitter_utils._parse_cookie_header(" auth_token = token ; invalid ; ; ct0 = csrf ; theme = dark ") == {
+        "auth_token": "token",
+        "ct0": "csrf",
+        "theme": "dark",
+    }
+
+
+def test_mock_twitter_extract_from_browser_restores_original_function(monkeypatch: pytest.MonkeyPatch):
+    def fake_extract_from_browser():
+        return "original"
+
+    monkeypatch.setattr(twitter_utils.twitter_auth, "extract_from_browser", fake_extract_from_browser)
+
+    with twitter_utils._mock_twitter_extract_from_browser():
+        with pytest.raises(RuntimeError, match="disabled"):
+            twitter_utils.twitter_auth.extract_from_browser()
+
+    assert twitter_utils.twitter_auth.extract_from_browser is fake_extract_from_browser
+
+
+def test_build_twitter_client_prefers_explicit_tokens(monkeypatch: pytest.MonkeyPatch):
+    captured: dict[str, object] = {}
+
+    class FakeTwitterClient:
+        def __init__(
+            self, auth_token: str, ct0: str, rate_limit_config: dict[str, int], cookie_string: str | None = None
+        ):
+            captured["auth_token"] = auth_token
+            captured["ct0"] = ct0
+            captured["rate_limit_config"] = rate_limit_config
+            captured["cookie_string"] = cookie_string
+
+    monkeypatch.setattr(twitter_utils, "load_config", lambda: {"rateLimit": {"limit": 10}})
+    monkeypatch.setattr(twitter_utils, "TwitterClient", FakeTwitterClient)
+    monkeypatch.setattr(
+        twitter_utils.twitter_auth,
+        "get_cookies",
+        lambda: pytest.fail("get_cookies should not be called when auth_token and ct0 are provided"),
+    )
+
+    client = twitter_utils._build_twitter_client("token", "csrf", cookie_string="auth_token=token; ct0=csrf")
+
+    assert isinstance(client, FakeTwitterClient)
+    assert captured == {
+        "auth_token": "token",
+        "ct0": "csrf",
+        "rate_limit_config": {"limit": 10},
+        "cookie_string": "auth_token=token; ct0=csrf",
+    }
+
+
+@pytest.mark.parametrize(
+    ("feed_type", "expected_result"),
+    [("following", ["following-feed"]), ("for-you", ["home-feed"])],
+)
+def test_fetch_feed_sync_uses_expected_client_method(
+    monkeypatch: pytest.MonkeyPatch, feed_type: str, expected_result: list[str]
+):
+    captured: dict[str, object] = {}
+
+    class FakeClient:
+        def fetch_following_feed(self, max_tweets: int) -> list[str]:
+            captured["called"] = ("following", max_tweets)
+            return ["following-feed"]
+
+        def fetch_home_timeline(self, max_tweets: int) -> list[str]:
+            captured["called"] = ("home", max_tweets)
+            return ["home-feed"]
+
+    monkeypatch.setattr(
+        twitter_utils,
+        "_build_twitter_client",
+        lambda auth_token, ct0, cookie_string=None: (
+            captured.update(
+                {
+                    "auth_token": auth_token,
+                    "ct0": ct0,
+                    "cookie_string": cookie_string,
+                }
+            )
+            or FakeClient()
+        ),
+    )
+    monkeypatch.setattr(twitter_utils, "_to_rssapi_tweets", lambda tweets: tweets)
+
+    tweets = twitter_utils._fetch_feed_sync(20, "auth_token=token; ct0=csrf", feed_type)
+
+    assert tweets == expected_result
+    assert captured["auth_token"] == "token"
+    assert captured["ct0"] == "csrf"
+    assert captured["cookie_string"] == "auth_token=token; ct0=csrf"
+    assert captured["called"] == (("following", 20) if feed_type == "following" else ("home", 20))
+
+
+def test_fetch_user_posts_sync_filters_by_screen_name_and_keeps_retweets(monkeypatch: pytest.MonkeyPatch):
+    def make_tweet(tweet_id: str, screen_name: str, *, is_retweet: bool = False) -> Tweet:
+        return Tweet.model_validate(
+            {
+                "id": tweet_id,
+                "text": f"tweet-{tweet_id}",
+                "author": {"name": screen_name, "screenName": screen_name},
+                "metrics": {},
+                "createdAt": "2025-01-01T00:00:00+00:00",
+                "media": [],
+                "isRetweet": is_retweet,
+            }
+        )
+
+    fake_client = SimpleNamespace(
+        fetch_user=lambda screen_name: SimpleNamespace(id=f"user-{screen_name}"),
+        fetch_user_tweets=lambda user_id, max_tweets: ["ignored-raw-tweets"],
+    )
+
+    monkeypatch.setattr(
+        twitter_utils, "_build_twitter_client", lambda auth_token, ct0, cookie_string=None: fake_client
+    )
+    monkeypatch.setattr(
+        twitter_utils,
+        "_to_rssapi_tweets",
+        lambda tweets: [
+            make_tweet("1", "TargetUser"),
+            make_tweet("2", "TARGETUSER"),
+            make_tweet("3", "SomeoneElse"),
+            make_tweet("4", "SomeoneElse", is_retweet=True),
+        ],
+    )
+
+    tweets = twitter_utils._fetch_user_posts_sync("targetuser", 10, "auth_token=token; ct0=csrf")
+
+    assert [tweet.id for tweet in tweets] == ["1", "2", "4"]
 
 
 def test_content_html_from_tweet_renders_photo_and_animated_gif_as_image():

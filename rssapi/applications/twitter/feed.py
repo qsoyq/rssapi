@@ -58,8 +58,8 @@ async def _fetch_and_convert(
     try:
         posts = await fetcher()
     except json.JSONDecodeError as e:
-        logger.error(f"failed to parse twitter CLI output: {e}")
-        raise HTTPException(status_code=500, detail="Failed to parse twitter CLI output")
+        logger.error(f"failed to parse Twitter response: {e}")
+        raise HTTPException(status_code=500, detail="Failed to parse Twitter response")
     except Exception as e:
         logger.error(f"failed to fetch {label}: {e}")
         status_code = 429 if "429" in str(e) else 500
@@ -73,8 +73,11 @@ async def _fetch_and_convert(
 
 
 @cached(RandomTTLCache(4096, 7200))
-async def fetch_user_posts_jsonfeed_items(screen_name: str, max_tweets: int) -> list[JSONFeedItem]:
-    return await _fetch_and_convert(lambda: fetch_user_posts(screen_name, max_tweets), f"user posts ({screen_name})")
+async def fetch_user_posts_jsonfeed_items(screen_name: str, max_tweets: int, cookies: str) -> list[JSONFeedItem]:
+    return await _fetch_and_convert(
+        lambda: fetch_user_posts(screen_name, max_tweets, cookies),
+        f"user posts ({screen_name})",
+    )
 
 
 @cached(RandomTTLCache(4096, 3600))
