@@ -78,7 +78,7 @@ def test_content_html_from_tweet_renders_photo_and_animated_gif_as_image():
     )
 
     assert content_html_from_tweet(tweet) == (
-        '<p>hello</p><img src="https://example.com/animated.gif" width="320" height="180" />'
+        '🖼️ <p>hello</p><img src="https://example.com/animated.gif" width="320" height="180" />'
     )
 
 
@@ -115,5 +115,29 @@ def test_content_html_from_tweet_removes_tco_links_from_text():
     )
 
     assert content_html_from_tweet(tweet) == (
-        '<p>hello</p><img src="https://example.com/animated.gif" width="320" height="180" />'
+        '🖼️ <p>hello</p><img src="https://example.com/animated.gif" width="320" height="180" />'
+    )
+
+
+def test_content_html_from_tweet_prefixes_video_emoji_when_video_exists():
+    tweet = Tweet.model_validate(
+        {
+            "id": "1",
+            "text": "hello",
+            "author": {"name": "tester", "screenName": "tester"},
+            "metrics": {},
+            "createdAt": "2025-01-01T00:00:00+00:00",
+            "media": [
+                {
+                    "type": "video",
+                    "url": "https://example.com/video.mp4",
+                    "width": 640,
+                    "height": 360,
+                }
+            ],
+        }
+    )
+
+    assert content_html_from_tweet(tweet) == (
+        '🎥 <p>hello</p><video src="https://example.com/video.mp4" width="640" height="360" controls preload="metadata"></video>'
     )
