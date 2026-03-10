@@ -20,6 +20,12 @@ from rssapi.utils.cache import RandomTTLCache
 logger = logging.getLogger(__file__)
 
 
+def _avatar_from_tweet(tweet: Tweet) -> str | None:
+    """优先从推文里读取图片作为头像，如果没有则从作者的 profile image url 读取"""
+    photos = [media.url for media in tweet.media if media.type == "photo"]
+    return photos[0] if photos else tweet.author.profile_image_url
+
+
 def _tweets_to_jsonfeed_items(tweets: list[Tweet]) -> list[JSONFeedItem]:
     items = []
     for tweet in tweets:
@@ -37,7 +43,7 @@ def _tweets_to_jsonfeed_items(tweets: list[Tweet]) -> list[JSONFeedItem]:
                     "author": {
                         "name": tweet.author.name,
                         "url": f"https://x.com/{tweet.author.screen_name}",
-                        "avatar": tweet.author.profile_image_url,
+                        "avatar": _avatar_from_tweet(tweet),
                     },
                 }
             )
