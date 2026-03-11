@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from itertools import chain
+from typing import Any
 
 import markdown
 from asyncache import cached
@@ -25,7 +26,7 @@ logger = logging.getLogger(__file__)
 async def channel_jsonfeed(req: Request, channels: list[str] = Query(..., description="channel name")):
     """Telegram Channel RSS Subscribe"""
     items = await fetch_feeds(channels)
-    feed = {
+    feed: dict[str, Any] = {
         "version": "https://jsonfeed.org/version/1",
         "title": "Telegram Channel RSS Subscribe",
         "description": "",
@@ -36,15 +37,15 @@ async def channel_jsonfeed(req: Request, channels: list[str] = Query(..., descri
         "items": items,
     }
     for item in items:
-        if item.author and item.author.avatar:
-            feed["icon"] = item.author.avatar
-            feed["favicon"] = item.author.avatar
+        if item.author:
+            if item.author.avatar:
+                feed["icon"] = item.author.avatar
+                feed["favicon"] = item.author.avatar
+            if item.author.name:
+                feed["title"] = item.author.name
+            feed["author"] = item.author
             break
 
-    for item in items:
-        if item.author and item.author.name:
-            feed["title"] = item.author.name
-            break
     return feed
 
 
