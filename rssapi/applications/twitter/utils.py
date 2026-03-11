@@ -17,6 +17,7 @@ logger = logging.getLogger(__file__)
 
 HTTP_URL_PATTERN = re.compile(r"https?://\S+")
 TCO_URL_PATTERN = re.compile(r"https://t\.co/\S+")
+# install_twitter_client_429_no_retry_patch()
 
 
 class AuthorScreenNameMapping:

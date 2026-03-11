@@ -1,7 +1,8 @@
+import logging
 import sys
 import types
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 import pytest
 
@@ -28,6 +29,7 @@ twitter_cli_module.auth = twitter_auth_module
 twitter_cli_module.client = twitter_client_module
 twitter_cli_module.config = twitter_config_module
 
+from rssapi.applications.twitter import patch as twitter_patch  # noqa: E402
 from rssapi.applications.twitter import utils as twitter_utils  # noqa: E402
 from rssapi.applications.twitter.types import Tweet  # noqa: E402
 from rssapi.applications.twitter.utils import (  # noqa: E402
@@ -36,6 +38,11 @@ from rssapi.applications.twitter.utils import (  # noqa: E402
     text_without_tco_links,
     title_from_text_by_delimiter_priority,
 )
+
+
+class _RetryCalls(TypedDict):
+    count: int
+    max_retries: list[int]
 
 
 @pytest.mark.parametrize(
@@ -137,6 +144,88 @@ def test_build_twitter_client_prefers_explicit_tokens(monkeypatch: pytest.Monkey
         "rate_limit_config": {"limit": 10},
         "cookie_string": "auth_token=token; ct0=csrf",
     }
+
+
+def test_install_twitter_client_429_no_retry_patch_disables_http_429_retry_for_api_request(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    calls = {"count": 0}
+
+    class FakeTwitterAPIError(RuntimeError):
+        def __init__(self, status_code: int, message: str):
+            super().__init__(message)
+            self.status_code = status_code
+
+    class FakeResponse:
+        status_code = 429
+        text = "rate limited"
+
+    class FakeSession:
+        def get(self, url: str, headers: dict[str, str], timeout: int) -> FakeResponse:
+            calls["count"] += 1
+            return FakeResponse()
+
+    def fake_get_cffi_session() -> FakeSession:
+        return FakeSession()
+
+    class FakeClient:
+        def __init__(self):
+            self._max_retries = 3
+            self._retry_base_delay = 1.0
+
+        def _build_headers(self, url: str = "", method: str = "GET") -> dict[str, str]:
+            return {}
+
+        def _api_request(self, url: str, method: str = "GET", body: dict[str, object] | None = None):
+            raise AssertionError("should be replaced by monkey patch")
+
+    monkeypatch.setitem(FakeClient._api_request.__globals__, "_get_cffi_session", fake_get_cffi_session)
+    monkeypatch.setitem(FakeClient._api_request.__globals__, "TwitterAPIError", FakeTwitterAPIError)
+    monkeypatch.setattr(twitter_patch, "TwitterClient", FakeClient)
+
+    twitter_patch.install_twitter_client_429_no_retry_patch()
+
+    client = FakeClient()
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(FakeTwitterAPIError, match="429"):
+            client._api_request("https://example.com")
+
+    assert calls["count"] == 1
+    assert "skipping retry and aborting request" in caplog.text
+
+
+def test_install_twitter_client_429_no_retry_patch_falls_back_to_api_get(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    calls: _RetryCalls = {"count": 0, "max_retries": []}
+
+    class FakeTwitterAPIError(RuntimeError):
+        def __init__(self, status_code: int, message: str):
+            super().__init__(message)
+            self.status_code = status_code
+
+    class FakeClient:
+        def __init__(self):
+            self._max_retries = 5
+
+        def _api_get(self, url: str):
+            calls["count"] += 1
+            calls["max_retries"].append(self._max_retries)
+            raise FakeTwitterAPIError(429, "Twitter API error 429: rate limited")
+
+    monkeypatch.setattr(twitter_patch, "TwitterClient", FakeClient)
+
+    twitter_patch.install_twitter_client_429_no_retry_patch()
+
+    client = FakeClient()
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(FakeTwitterAPIError, match="429"):
+            client._api_get("https://example.com")
+
+    assert calls["count"] == 1
+    assert calls["max_retries"] == [0]
+    assert client._max_retries == 5
+    assert "skipping retry and aborting request" in caplog.text
 
 
 @pytest.mark.parametrize(
