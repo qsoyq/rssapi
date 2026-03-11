@@ -31,9 +31,11 @@ twitter_cli_module.config = twitter_config_module
 
 from rssapi.applications.twitter import patch as twitter_patch  # noqa: E402
 from rssapi.applications.twitter import utils as twitter_utils  # noqa: E402
+from rssapi.applications.twitter.feed import _tweets_to_jsonfeed_items  # noqa: E402
 from rssapi.applications.twitter.types import Tweet  # noqa: E402
 from rssapi.applications.twitter.utils import (  # noqa: E402
     content_html_from_tweet,
+    media_emoji_prefix_from_tweet,
     text_without_http_links,
     text_without_tco_links,
     title_from_text_by_delimiter_priority,
@@ -329,7 +331,7 @@ def test_content_html_from_tweet_renders_photo_and_animated_gif_as_image():
     )
 
     assert content_html_from_tweet(tweet) == (
-        '🖼️ <p>hello</p><img src="https://example.com/animated.gif" width="320" height="180" />'
+        '<p>hello</p><img src="https://example.com/animated.gif" width="320" height="180" />'
     )
 
 
@@ -366,11 +368,11 @@ def test_content_html_from_tweet_removes_tco_links_from_text():
     )
 
     assert content_html_from_tweet(tweet) == (
-        '🖼️ <p>hello</p><img src="https://example.com/animated.gif" width="320" height="180" />'
+        '<p>hello</p><img src="https://example.com/animated.gif" width="320" height="180" />'
     )
 
 
-def test_content_html_from_tweet_prefixes_video_emoji_when_video_exists():
+def test_content_html_from_tweet_renders_video_without_emoji_prefix():
     tweet = Tweet.model_validate(
         {
             "id": "1",
@@ -390,5 +392,60 @@ def test_content_html_from_tweet_prefixes_video_emoji_when_video_exists():
     )
 
     assert content_html_from_tweet(tweet) == (
-        '🎥 <p>hello</p><video src="https://example.com/video.mp4" width="640" height="360" controls preload="metadata"></video>'
+        '<p>hello</p><video src="https://example.com/video.mp4" width="640" height="360" controls preload="metadata"></video>'
+    )
+
+
+def test_media_emoji_prefix_from_tweet_prioritizes_video_before_photo():
+    tweet = Tweet.model_validate(
+        {
+            "id": "1",
+            "text": "hello",
+            "author": {"name": "tester", "screenName": "tester"},
+            "metrics": {},
+            "createdAt": "2025-01-01T00:00:00+00:00",
+            "media": [
+                {
+                    "type": "photo",
+                    "url": "https://example.com/image.jpg",
+                    "width": 320,
+                    "height": 180,
+                },
+                {
+                    "type": "video",
+                    "url": "https://example.com/video.mp4",
+                    "width": 640,
+                    "height": 360,
+                },
+            ],
+        }
+    )
+
+    assert media_emoji_prefix_from_tweet(tweet) == "🎥 🖼️"
+
+
+def test_tweets_to_jsonfeed_items_moves_media_emoji_to_title():
+    tweet = Tweet.model_validate(
+        {
+            "id": "1",
+            "text": "hello https://t.co/DlBA3uySC1 world",
+            "author": {"name": "tester", "screenName": "tester"},
+            "metrics": {},
+            "createdAt": "2025-01-01T00:00:00+00:00",
+            "media": [
+                {
+                    "type": "photo",
+                    "url": "https://example.com/image.jpg",
+                    "width": 320,
+                    "height": 180,
+                }
+            ],
+        }
+    )
+
+    item = _tweets_to_jsonfeed_items([tweet])[0]
+
+    assert item.title == "🖼️ hello world"
+    assert (
+        item.content_html == '<p>hello world</p><img src="https://example.com/image.jpg" width="320" height="180" />'
     )

@@ -65,6 +65,25 @@ def text_without_tco_links(text: str) -> str:
     return _normalize_text_whitespace(text)
 
 
+def media_emoji_prefix_from_tweet(tweet: Tweet) -> str:
+    media_photo = False
+    media_video = False
+
+    for m in tweet.media:
+        match m.type:
+            case "photo" | "animated_gif":
+                media_photo = True
+            case "video":
+                media_video = True
+
+    prefix_parts = []
+    if media_video:
+        prefix_parts.append("🎥")
+    if media_photo:
+        prefix_parts.append("🖼️")
+    return " ".join(prefix_parts)
+
+
 def _parse_cookie_header(cookies: str) -> dict[str, str]:
     parsed_cookies: dict[str, str] = {}
     for cookie in cookies.split(";"):
@@ -174,24 +193,13 @@ def content_html_from_tweet(tweet: Tweet) -> str:
         text = text_without_tco_links(tweet.text)
         content_html = f"<p>{html.escape(text)}</p>"
 
-    media_photo = False
-    media_video = False
-
     for m in tweet.media:
         match m.type:
             case "photo" | "animated_gif":
-                media_photo = True
                 content_html += f'<img src="{m.url}" width="{m.width}" height="{m.height}" />'
             case "video":
-                media_video = True
                 content_html += (
                     f'<video src="{m.url}" width="{m.width}" height="{m.height}" controls preload="metadata"></video>'
                 )
-
-    if media_photo:
-        content_html = f"🖼️ {content_html}"
-
-    if media_video:
-        content_html = f"🎥 {content_html}"
 
     return content_html

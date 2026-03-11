@@ -12,6 +12,7 @@ from rssapi.applications.twitter.utils import (
     content_html_from_tweet,
     fetch_feed,
     fetch_user_posts,
+    media_emoji_prefix_from_tweet,
     text_without_http_links,
     title_from_text_by_delimiter_priority,
 )
@@ -32,6 +33,9 @@ def _tweets_to_jsonfeed_items(tweets: list[Tweet]) -> list[JSONFeedItem]:
         AuthorScreenNameMapping.set(tweet.author.name, tweet.author.screen_name)
         title = text_without_http_links(tweet.text)
         title = title_from_text_by_delimiter_priority(title)
+        media_prefix = media_emoji_prefix_from_tweet(tweet)
+        if media_prefix:
+            title = " ".join(part for part in [media_prefix, title] if part)
         items.append(
             JSONFeedItem.model_validate(
                 {
