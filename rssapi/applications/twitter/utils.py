@@ -193,9 +193,14 @@ async def fetch_user_posts(screen_name: str, max_tweets: int, cookies: str) -> l
 
 def content_html_from_tweet(tweet: Tweet) -> str:
     content_html = ""
+
+    if tweet.is_retweet and tweet.retweeted_by:
+        rt_name = html.escape(tweet.retweeted_by)
+        content_html += f'<p>🔁 RT by <a href="https://x.com/{rt_name}">@{rt_name}</a></p>'
+
     if tweet.text:
         text = text_without_tco_links(tweet.text)
-        content_html = f"<p>{html.escape(text)}</p>"
+        content_html += f"<p>{html.escape(text)}</p>"
 
     for m in tweet.media:
         match m.type:
