@@ -12,8 +12,8 @@ from rssapi.applications.twitter.utils import (
     content_html_from_tweet,
     fetch_feed,
     fetch_user_posts,
-    media_emoji_prefix_from_tweet,
     text_without_http_links,
+    title_emoji_prefix_from_tweet,
     title_from_text_by_delimiter_priority,
 )
 from rssapi.utils.cache import RandomTTLCache
@@ -27,21 +27,23 @@ def _avatar_from_tweet(tweet: Tweet) -> str | None:
     return photos[0] if photos else tweet.author.profile_image_url
 
 
+def _title_from_tweet(tweet: Tweet) -> str:
+    title = text_without_http_links(tweet.text)
+    title = title_from_text_by_delimiter_priority(title)
+    media_prefix = title_emoji_prefix_from_tweet(tweet)
+    return " ".join(part for part in [media_prefix, title] if part)
+
+
 def _tweets_to_jsonfeed_items(tweets: list[Tweet]) -> list[JSONFeedItem]:
     items = []
     for tweet in tweets:
         AuthorScreenNameMapping.set(tweet.author.name, tweet.author.screen_name)
-        title = text_without_http_links(tweet.text)
-        title = title_from_text_by_delimiter_priority(title)
-        media_prefix = media_emoji_prefix_from_tweet(tweet)
-        if media_prefix:
-            title = " ".join(part for part in [media_prefix, title] if part)
         items.append(
             JSONFeedItem.model_validate(
                 {
                     "id": tweet.id,
                     "url": f"https://x.com/{tweet.author.screen_name}/status/{tweet.id}",
-                    "title": title,
+                    "title": _title_from_tweet(tweet),
                     "content_html": content_html_from_tweet(tweet),
                     "date_published": tweet.created_at,
                     "author": {

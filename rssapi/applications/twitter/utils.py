@@ -65,9 +65,11 @@ def text_without_tco_links(text: str) -> str:
     return _normalize_text_whitespace(text)
 
 
-def media_emoji_prefix_from_tweet(tweet: Tweet) -> str:
+def title_emoji_prefix_from_tweet(tweet: Tweet) -> str:
+    """Generate a prefix for the tweet media (photo, video, animated gif) and retweet indicator."""
     media_photo = False
     media_video = False
+    is_retweet = tweet.is_retweet
 
     for m in tweet.media:
         match m.type:
@@ -78,9 +80,11 @@ def media_emoji_prefix_from_tweet(tweet: Tweet) -> str:
 
     prefix_parts = []
     if media_video:
-        prefix_parts.append("🎥")
+        prefix_parts.append("▶️")
     if media_photo:
-        prefix_parts.append("🖼️")
+        prefix_parts.append("📸")
+    if is_retweet:
+        prefix_parts.append("🔁")
     return " ".join(prefix_parts)
 
 
