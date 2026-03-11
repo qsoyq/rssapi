@@ -8,17 +8,17 @@ from bs4 import Tag
 from fastapi import APIRouter, HTTPException, Request
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
-from rssapi.core.responses import PrettyJSONResponse
+from rssapi.core.responses import PrettyJSONFeedResponse
 from rssapi.utils.cache import RandomTTLCache
 
-router = APIRouter(tags=['RSS'], prefix='/rss/readhub')
+router = APIRouter(tags=["RSS"], prefix="/rss/readhub")
 
 logger = logging.getLogger(__file__)
 
 
 def parseArticle(article: Tag, date_published: str) -> dict:
-    linkTag = article.select_one('a')
-    contentTag = article.select_one('p')
+    linkTag = article.select_one("a")
+    contentTag = article.select_one("p")
     assert linkTag, article
     assert contentTag, article
 
@@ -26,48 +26,48 @@ def parseArticle(article: Tag, date_published: str) -> dict:
     url = f"https://readhub.cn{linkTag.attrs['href']}"
     content_html = str(contentTag)
     return {
-        'id': f'readhub-daily-{title}',
-        'title': title,
-        'url': url,
-        'content_html': content_html,
-        'date_published': date_published,
+        "id": f"readhub-daily-{title}",
+        "title": title,
+        "url": url,
+        "content_html": content_html,
+        "date_published": date_published,
     }
 
 
-@router.get('/daily', summary='无码科技每日早报', response_model=JSONFeed, response_class=PrettyJSONResponse)
+@router.get("/daily", summary="无码科技每日早报", response_model=JSONFeed, response_class=PrettyJSONFeedResponse)
 async def daily(req: Request):
     """无码科技每日早报"""
     items: list[JSONFeedItem] = await fetch_feeds()
     feed = {
-        'version': 'https://jsonfeed.org/version/1',
-        'title': '无码科技每日早报',
-        'description': '',
-        'home_page_url': 'https://readhub.cn/daily',
-        'feed_url': f'{req.url.scheme}://{req.url.hostname}{req.url.path}?{req.url.query}',
-        'icon': 'https://readhub.cn/favicon.ico',
-        'favicon': 'https://readhub.cn/favicon.ico',
-        'items': items,
+        "version": "https://jsonfeed.org/version/1",
+        "title": "无码科技每日早报",
+        "description": "",
+        "home_page_url": "https://readhub.cn/daily",
+        "feed_url": f"{req.url.scheme}://{req.url.hostname}{req.url.path}?{req.url.query}",
+        "icon": "https://readhub.cn/favicon.ico",
+        "favicon": "https://readhub.cn/favicon.ico",
+        "items": items,
     }
     return feed
 
 
 @cached(RandomTTLCache(4096, 900))
 async def fetch_feeds() -> list[JSONFeedItem]:
-    url = 'https://www.readhub.cn/daily'
+    url = "https://www.readhub.cn/daily"
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     }
     async with httpx.AsyncClient(headers=headers, verify=False) as client:
         res = await client.get(url)
 
         if res.is_error:
-            raise HTTPException(res.status_code, f'fetch readhub daily error: {res.text}')
+            raise HTTPException(res.status_code, f"fetch readhub daily error: {res.text}")
 
-    document = Soup(res.text, 'lxml')
-    dateTag = document.select_one('div > span')
+    document = Soup(res.text, "lxml")
+    dateTag = document.select_one("div > span")
     assert dateTag, document
     date_published = dateTag.getText()
-    if re.match(r'\d{4}.\d{2}.\d{2}', date_published):
+    if re.match(r"\d{4}.\d{2}.\d{2}", date_published):
         date_published = f"{date_published.replace('.', '-')}T00:00:00+08:00"
 
-    return [JSONFeedItem(**(parseArticle(article, date_published))) for article in document.select('article')]
+    return [JSONFeedItem(**(parseArticle(article, date_published))) for article in document.select("article")]

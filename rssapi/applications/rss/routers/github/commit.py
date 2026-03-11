@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Path, Query, Request
 from rssapi.applications.rss.schemas.github import AuthorSchema
 from rssapi.applications.rss.schemas.github.commits import CommitItemSchema, CommitSchema
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
-from rssapi.core.responses import PrettyJSONResponse
+from rssapi.core.responses import PrettyJSONFeedResponse
 from rssapi.utils.cache import RandomTTLCache
 
 router = APIRouter(tags=["RSS"], prefix="/rss/github/commits")
@@ -20,7 +20,7 @@ logger = logging.getLogger(__file__)
     "/repos/{owner}/{repo}",
     summary="Github Repo Commits RSS",
     response_model=JSONFeed,
-    response_class=PrettyJSONResponse,
+    response_class=PrettyJSONFeedResponse,
 )
 async def commits_list(
     req: Request,

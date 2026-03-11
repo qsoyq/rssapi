@@ -15,11 +15,11 @@ from fastapi import APIRouter, HTTPException, Path, Query, Request
 from htmlmin import minify
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed
-from rssapi.core.responses import PrettyJSONResponse
+from rssapi.core.responses import PrettyJSONFeedResponse
 from rssapi.core.settings import AppSettings
 from rssapi.utils.cache import RandomTTLCache, cached
 
-router = APIRouter(tags=['RSS'], prefix='/rss/nodeseek/category')
+router = APIRouter(tags=["RSS"], prefix="/rss/nodeseek/category")
 
 logger = logging.getLogger(__file__)
 
@@ -31,7 +31,7 @@ class NodeseekToolkit:
     ONCE_FETCH_ARTICLE_CACHE_MAX = 50
     ArticlePostCache: MutableMapping[str, bytes] = TTLCache(4096, ttl=86400 * 3)
     LoginRequired: MutableMapping[str, bool] = TTLCache(4096, ttl=86400 * 3)
-    GetOrCreate = contextvars.ContextVar('GetOrCreate', default=False)
+    GetOrCreate = contextvars.ContextVar("GetOrCreate", default=False)
 
     @staticmethod
     def html_compresse(html_content: str) -> bytes:
@@ -48,7 +48,7 @@ class NodeseekToolkit:
         # 跳过要求登陆的 URL
         async with NodeseekToolkit.LOCK:
             if url in NodeseekToolkit.LoginRequired:
-                logger.debug(f'{url} skip because of login required')
+                logger.debug(f"{url} skip because of login required")
                 return None
 
         # 从缓存读取
@@ -56,7 +56,7 @@ class NodeseekToolkit:
         async with NodeseekToolkit.LOCK:
             content_html = NodeseekToolkit.ArticlePostCache.get(url)
             if content_html:
-                logger.debug(f'[Nodessk RSS] read from cache for {url}')
+                logger.debug(f"[Nodessk RSS] read from cache for {url}")
                 return NodeseekToolkit.html_decompress(content_html)
 
         if not NodeseekToolkit.GetOrCreate.get():
@@ -78,7 +78,7 @@ class NodeseekToolkit:
         if content_html:
             async with NodeseekToolkit.LOCK:
                 NodeseekToolkit.ArticlePostCache[url] = NodeseekToolkit.html_compresse(content_html)
-                logger.debug(f'[Nodessk RSS] set new cache for {url}')
+                logger.debug(f"[Nodessk RSS] set new cache for {url}")
         else:
             logger.warning(f"[Nodeseek RSS] can't fetch post content: {url}")
         return content_html
@@ -86,36 +86,36 @@ class NodeseekToolkit:
     @staticmethod
     def make_feeds_by_document(body: str) -> list[dict[str, object]]:
         items: list[dict[str, object]] = []
-        document = Soup(body, 'lxml')
+        document = Soup(body, "lxml")
         post_list = document.select("li[class='post-list-item']")
         for item in post_list:
-            author = item.select_one('a')
-            name = avatar = author_link = ''
+            author = item.select_one("a")
+            name = avatar = author_link = ""
             if author:
-                img = author.select_one('img')
+                img = author.select_one("img")
                 if img:
-                    name = str(img.attrs['alt'])
+                    name = str(img.attrs["alt"])
                     avatar = f"https://nodeseek.com{img.attrs['src']}"
                     author_link = f"https://nodeseek.com{author.attrs['href']}"
             _content = item.select_one("div[class='post-list-content']")
             if not _content:
                 continue
-            a = _content.select_one('div > a')
+            a = _content.select_one("div > a")
             if not a:
                 continue
             href = f"https://www.nodeseek.com{a.attrs['href']}"  # type: ignore
             title = a.text
-            _datetime = parse(item.select_one("a[class='info-item info-last-comment-time'] > time").attrs['datetime'])  # type: ignore
+            _datetime = parse(item.select_one("a[class='info-item info-last-comment-time'] > time").attrs["datetime"])  # type: ignore
             ret = urllib.parse.urlparse(href)
-            uid = ret.path.split('/')[-1].split('-')[1]
+            uid = ret.path.split("/")[-1].split("-")[1]
 
             payload: dict[str, object] = {
-                'id': f'{uid}',
-                'title': f'{title}',
-                'url': href,
-                'date_published': _datetime.strftime('%Y-%m-%dT%H:%M:%S%z') if _datetime else '',
-                'content_text': '',
-                'author': {'url': author_link, 'avatar': avatar, 'name': name},
+                "id": f"{uid}",
+                "title": f"{title}",
+                "url": href,
+                "date_published": _datetime.strftime("%Y-%m-%dT%H:%M:%S%z") if _datetime else "",
+                "content_text": "",
+                "author": {"url": author_link, "avatar": avatar, "name": name},
             }
 
             items.append(payload)
@@ -127,9 +127,9 @@ class NodeseekToolkit:
         if not resp.ok:
             raise HTTPException(resp.status_code, resp.text)
 
-        document = Soup(resp.text, 'lxml')
-        articleList = document.select('article.post-content')
-        return '<hr>'.join([str(x) for x in document.select('article.post-content')]) if articleList else None
+        document = Soup(resp.text, "lxml")
+        articleList = document.select("article.post-content")
+        return "<hr>".join([str(x) for x in document.select("article.post-content")]) if articleList else None
 
 
 async def cloudscraper_get(
@@ -149,16 +149,16 @@ async def cloudscraper_get(
 
 
 @router.get(
-    '/{category}', summary='Nodeseek 板块新贴 RSS 订阅', response_model=JSONFeed, response_class=PrettyJSONResponse
+    "/{category}", summary="Nodeseek 板块新贴 RSS 订阅", response_model=JSONFeed, response_class=PrettyJSONFeedResponse
 )
 async def category(
     req: Request,
-    session: str = Query(None, description='Cookie.session, 登陆可见的版块需要'),
-    smac: str = Query(None, description='Cookie.smac, 登陆可见的版块需要'),
-    category: str = Path(..., description='版块名称, 如tech'),
-    cookie: str = Query('', description='完整 Cookie 字符串, 存在时无视 session 和 smac'),
-    sortby: str = Query('postTime', description='排序方式, postTime、replyTime'),
-    get_or_create: bool = Query(False, description='contentHTML缓存策略, 是否在未命中缓存后拉取内容'),
+    session: str = Query(None, description="Cookie.session, 登陆可见的版块需要"),
+    smac: str = Query(None, description="Cookie.smac, 登陆可见的版块需要"),
+    category: str = Path(..., description="版块名称, 如tech"),
+    cookie: str = Query("", description="完整 Cookie 字符串, 存在时无视 session 和 smac"),
+    sortby: str = Query("postTime", description="排序方式, postTime、replyTime"),
+    get_or_create: bool = Query(False, description="contentHTML缓存策略, 是否在未命中缓存后拉取内容"),
 ):
     """Nodeseek 分类帖子新鲜出炉
 
@@ -170,19 +170,19 @@ async def category(
 
 
 @router.get(
-    '/{category}/{session}/{smac}',
-    summary='Nodeseek 板块新贴 RSS 订阅',
+    "/{category}/{session}/{smac}",
+    summary="Nodeseek 板块新贴 RSS 订阅",
     response_model=JSONFeed,
-    response_class=PrettyJSONResponse,
+    response_class=PrettyJSONFeedResponse,
 )
 async def category_with_session_smac(
     req: Request,
-    session: str = Path(..., description='Cookie.session, 登陆可见的版块需要'),
-    smac: str = Path(..., description='Cookie.smac, 登陆可见的版块需要'),
-    category: str = Path(..., description='版块名称, 如tech'),
-    cookie: str = Query('', description='完整 Cookie 字符串, 存在时无视 session 和 smac'),
-    sortby: str = Query('postTime', description='排序方式, postTime、replyTime'),
-    get_or_create: bool = Query(False, description='contentHTML缓存策略, 是否在未命中缓存后拉取内容'),
+    session: str = Path(..., description="Cookie.session, 登陆可见的版块需要"),
+    smac: str = Path(..., description="Cookie.smac, 登陆可见的版块需要"),
+    category: str = Path(..., description="版块名称, 如tech"),
+    cookie: str = Query("", description="完整 Cookie 字符串, 存在时无视 session 和 smac"),
+    sortby: str = Query("postTime", description="排序方式, postTime、replyTime"),
+    get_or_create: bool = Query(False, description="contentHTML缓存策略, 是否在未命中缓存后拉取内容"),
 ):
     """Nodeseek 分类帖子新鲜出炉
 
@@ -196,19 +196,19 @@ async def category_with_session_smac(
 async def get_feeds_by_category(req, category, session, smac, cookie, sortby, get_or_create):
     items = []
     feed: dict[str, str | list[dict[str, object]]] = {
-        'version': 'https://jsonfeed.org/version/1',
-        'title': f'Nodeseek RSS {category}',
-        'description': f'Nodeseek RSS {category}',
-        'home_page_url': f'https://www.nodeseek.com/categories/{category}',
-        'feed_url': f'{req.url.scheme}://{req.url.hostname}{req.url.path}?{req.url.query}',
-        'icon': 'https://www.nodeseek.com/static/image/favicon/android-chrome-512x512.png',
-        'favicon': 'https://www.nodeseek.com/static/image/favicon/android-chrome-512x512.png',
-        'items': [],
+        "version": "https://jsonfeed.org/version/1",
+        "title": f"Nodeseek RSS {category}",
+        "description": f"Nodeseek RSS {category}",
+        "home_page_url": f"https://www.nodeseek.com/categories/{category}",
+        "feed_url": f"{req.url.scheme}://{req.url.hostname}{req.url.path}?{req.url.query}",
+        "icon": "https://www.nodeseek.com/static/image/favicon/android-chrome-512x512.png",
+        "favicon": "https://www.nodeseek.com/static/image/favicon/android-chrome-512x512.png",
+        "items": [],
     }
     token = NodeseekToolkit.GetOrCreate.set(get_or_create)
 
     items = await get_feeds_by_cache(category, session=session, smac=smac, cookie=cookie, sortby=sortby)
-    feed['items'] = items
+    feed["items"] = items
     NodeseekToolkit.GetOrCreate.reset(token)
     return feed
 
@@ -219,18 +219,18 @@ async def get_feeds_by_cache(
     *,
     session: str | None = None,
     smac: str | None = None,
-    cookie: str | None = '',
-    sortby: str = 'postTime',
+    cookie: str | None = "",
+    sortby: str = "postTime",
 ):
-    url = f'https://www.nodeseek.com/categories/{category}?sortBy={sortby}'
+    url = f"https://www.nodeseek.com/categories/{category}?sortBy={sortby}"
     cookies = {
-        'colorscheme': 'light',
-        'session': session,
-        'smac': smac,
-        'sortBy': sortby,
+        "colorscheme": "light",
+        "session": session,
+        "smac": smac,
+        "sortBy": sortby,
     }
     if cookie:
-        cookies = {k.strip(): v.strip() for k, v in (item.split('=') for item in cookie.strip().split(';'))}
+        cookies = {k.strip(): v.strip() for k, v in (item.split("=") for item in cookie.strip().split(";"))}
 
     scraper = cloudscraper.create_scraper()
     resp = await cloudscraper_get(scraper, url, cookies)
@@ -243,20 +243,20 @@ async def get_feeds_by_cache(
         count += 1
         if count > NodeseekToolkit.ONCE_FETCH_ARTICLE_CACHE_MAX:
             break
-        url = str(item['url'])
+        url = str(item["url"])
 
         try:
             content_html = await NodeseekToolkit.get_or_create_article_post_content(url, scraper, cookies)
         except HTTPException as e:
             if e.status_code == 429:
-                logger.warning('[Nodeseek RSS] Request has reached the limit.')
+                logger.warning("[Nodeseek RSS] Request has reached the limit.")
             else:
                 logger.warning(
-                    f'[Nodeseek RSS] get_or_create_article_post_content failed, {e.status_code}, {e.detail}'
+                    f"[Nodeseek RSS] get_or_create_article_post_content failed, {e.status_code}, {e.detail}"
                 )
             break
 
         if content_html:
-            item['content_html'] = content_html
-            item['content_text'] = None
+            item["content_html"] = content_html
+            item["content_text"] = None
     return items

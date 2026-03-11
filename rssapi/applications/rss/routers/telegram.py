@@ -7,7 +7,7 @@ from asyncache import cached
 from fastapi import APIRouter, Query, Request
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
-from rssapi.core.responses import PrettyJSONResponse
+from rssapi.core.responses import PrettyJSONFeedResponse
 from rssapi.utils.basic import TelegramToolkit
 from rssapi.utils.cache import RandomTTLCache
 
@@ -17,7 +17,10 @@ logger = logging.getLogger(__file__)
 
 
 @router.get(
-    "/channel", summary="Telegram Channel RSS Subscribe", response_model=JSONFeed, response_class=PrettyJSONResponse
+    "/channel",
+    summary="Telegram Channel RSS Subscribe",
+    response_model=JSONFeed,
+    response_class=PrettyJSONFeedResponse,
 )
 async def channel_jsonfeed(req: Request, channels: list[str] = Query(..., description="channel name")):
     """Telegram Channel RSS Subscribe"""

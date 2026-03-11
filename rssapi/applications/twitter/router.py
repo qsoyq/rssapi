@@ -8,11 +8,17 @@ from rssapi.applications.twitter.feed import (
     fetch_user_posts_jsonfeed_items,
 )
 from rssapi.applications.twitter.utils import AuthorScreenNameMapping
+from rssapi.core.responses import PrettyJSONFeedResponse
 
 router = APIRouter(tags=["RSS"], prefix="/rss/twitter")
 
 
-@router.get("/{screen_name}/posts", response_model=JSONFeed, summary="Twitter User Posts RSS")
+@router.get(
+    "/{screen_name}/posts",
+    response_model=JSONFeed,
+    summary="Twitter User Posts RSS",
+    response_class=PrettyJSONFeedResponse,
+)
 async def posts(
     req: Request,
     screen_name: str = Path(..., description="Twitter 用户名"),
@@ -51,7 +57,12 @@ async def posts(
     return feed
 
 
-@router.get("/user/timeline/{feed_type}", response_model=JSONFeed, summary="Twitter User Timeline RSS")
+@router.get(
+    "/user/timeline/{feed_type}",
+    response_model=JSONFeed,
+    summary="Twitter User Timeline RSS",
+    response_class=PrettyJSONFeedResponse,
+)
 async def timeline(
     req: Request,
     feed_type: Literal["for-you", "following"] = Path(..., description="Timeline 类型"),

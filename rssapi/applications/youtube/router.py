@@ -5,13 +5,19 @@ from fastapi import APIRouter, HTTPException, Path, Query, Request
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed
 from rssapi.applications.youtube.utils import fetch_channel_feed, fetch_channel_info_by_handle
+from rssapi.core.responses import PrettyJSONFeedResponse
 
 router = APIRouter(tags=["RSS"], prefix="/rss/youtube")
 
 logger = logging.getLogger(__file__)
 
 
-@router.get("/channel/{handle}", response_model=JSONFeed, summary="YouTube 频道视频 RSS 订阅")
+@router.get(
+    "/channel/{handle}",
+    response_model=JSONFeed,
+    summary="YouTube 频道视频 RSS 订阅",
+    response_class=PrettyJSONFeedResponse,
+)
 def _(
     handle: str = Path(..., description="YouTube 频道 handle，如 `@zhongwenze`"),
     max_results: int = Query(20, ge=1, le=50, description="返回视频数量，默认 20，最大 50"),
@@ -25,7 +31,12 @@ def _(
     raise HTTPException(status_code=400, detail="Not implemented")
 
 
-@router.get("/channel/{handle}/{api_key}", response_model=JSONFeed, summary="YouTube 频道视频 RSS 订阅")
+@router.get(
+    "/channel/{handle}/{api_key}",
+    response_model=JSONFeed,
+    summary="YouTube 频道视频 RSS 订阅",
+    response_class=PrettyJSONFeedResponse,
+)
 def channel_feed(
     req: Request,
     handle: str = Path(..., description="YouTube 频道 handle，如 `@zhongwenze`"),

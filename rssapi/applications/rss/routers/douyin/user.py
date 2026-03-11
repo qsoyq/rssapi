@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Path, Query, Request
 from playwright._impl._errors import TimeoutError as PlaywrightTimeoutError
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
-from rssapi.core.responses import PrettyJSONResponse
+from rssapi.core.responses import PrettyJSONFeedResponse
 from rssapi.core.settings import AppSettings
 from rssapi.utils.cache import RandomTTLCache
 from rssapi.utils.rss.douyin import AccessHistory, DouyinPlaywright, TimeoutException, to_feeds
@@ -23,7 +23,7 @@ logger = logging.getLogger(__file__)
     "/{username:str}",
     summary="抖音用户作品订阅",
     response_model=JSONFeed,
-    response_class=PrettyJSONResponse,
+    response_class=PrettyJSONFeedResponse,
 )
 async def user(
     req: Request,
@@ -59,7 +59,7 @@ async def user(
     "/{username:str}/{sessionid_ss:str}",
     summary="抖音用户作品订阅",
     response_model=JSONFeed,
-    response_class=PrettyJSONResponse,
+    response_class=PrettyJSONFeedResponse,
 )
 async def user_with_cookie(
     req: Request,
