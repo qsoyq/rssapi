@@ -84,7 +84,13 @@ async def timeline(
     if cookies is None:
         raise HTTPException(status_code=401, detail="cookies or X-Twitter-Cookie are required")
 
-    items = await fetch_feed_jsonfeed_items(max_tweets, cookies, feed_type)
+    cached_items = await fetch_feed_jsonfeed_items(max_tweets, cookies, feed_type)
+    items = [
+        item.model_copy(update={"title": f"@{item.author.name} {item.title}"})
+        if item.author and item.author.name
+        else item
+        for item in cached_items
+    ]
     host = req.url.hostname
     feed: dict[str, Any] = {
         "version": "https://jsonfeed.org/version/1",
