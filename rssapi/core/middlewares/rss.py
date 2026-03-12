@@ -20,14 +20,19 @@ logger = logging.getLogger(__file__)
 
 
 def add_middleware(app: FastAPI):
-    app.add_middleware(TelegramFeedFilterMiddleware)
-    app.add_middleware(NGAFeedFilterMiddleware)
-    app.add_middleware(NodeseekFeedFilterMiddleware)
-    app.add_middleware(AddTwitterHTMLFeedMiddleware)
-    app.add_middleware(UpdateTelegraphHTMLFeedMiddleware)
-    app.add_middleware(FillImageFromAuthorAvatarMiddleware)
-    app.add_middleware(MarkdownRenderMiddleware)
-    app.add_middleware(FillFeedAuthorFromItemsMiddleware)
+    middlewares = [
+        MarkdownRenderMiddleware,
+        TelegramFeedFilterMiddleware,
+        NGAFeedFilterMiddleware,
+        NodeseekFeedFilterMiddleware,
+        AddTwitterHTMLFeedMiddleware,
+        UpdateTelegraphHTMLFeedMiddleware,
+        FillFeedAuthorFromItemsMiddleware,
+        FillImageFromAuthorAvatarMiddleware,
+        FillFeedIconFromAuthorAvatarMiddleware,
+    ]
+    for middleware in middlewares:
+        app.add_middleware(middleware)
 
 
 class AddTwitterHTMLFeedMiddleware(BaseHTTPMiddleware):
@@ -226,6 +231,30 @@ class FillImageFromAuthorAvatarMiddleware(BaseHTTPMiddleware):
             headers.pop("content-length", None)
             if body.get("version") == "https://jsonfeed.org/version/1":
                 body["items"] = list(map(self.fill_image, body["items"]))
+            return PrettyJSONFeedResponse(body, status_code=response.status_code, headers=headers)
+        return response
+
+
+class FillFeedIconFromAuthorAvatarMiddleware(BaseHTTPMiddleware):
+    """当顶层 author.avatar 存在时，用 avatar 覆盖 icon/favicon"""
+
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response | PrettyJSONFeedResponse:
+        response = await call_next(request)
+        ct = response.headers.get("content-type")
+        if ct and ct.startswith("application/feed+json") and request.url.path.startswith("/api/rss/"):
+            response_body = b""
+            async for chunk in response.body_iterator:  # type: ignore
+                response_body += chunk
+            body = json.loads(response_body)
+            headers = dict(response.headers)
+            headers.pop("content-length", None)
+            author = body.get("author")
+            avatar = author.get("avatar") if isinstance(author, dict) else None
+            if avatar:
+                body["icon"] = avatar
+                body["favicon"] = avatar
             return PrettyJSONFeedResponse(body, status_code=response.status_code, headers=headers)
         return response
 
