@@ -25,7 +25,9 @@ def add_middleware(app: FastAPI):
     app.add_middleware(NodeseekFeedFilterMiddleware)
     app.add_middleware(AddTwitterHTMLFeedMiddleware)
     app.add_middleware(UpdateTelegraphHTMLFeedMiddleware)
+    app.add_middleware(FillImageFromAuthorAvatarMiddleware)
     app.add_middleware(MarkdownRenderMiddleware)
+    app.add_middleware(FillFeedAuthorFromItemsMiddleware)
 
 
 class AddTwitterHTMLFeedMiddleware(BaseHTTPMiddleware):
@@ -199,6 +201,57 @@ class NGAFeedFilterMiddleware(BaseFeedFilterMiddleware):
     BLOCK_REGEX_TITLE = ["预制菜"]
 
     MATCH_URL_PATTERN = r"/api/rss/nga/"
+
+
+class FillImageFromAuthorAvatarMiddleware(BaseHTTPMiddleware):
+    """当 item.image 不存在且 author.avatar 存在时，用 avatar 填充 image"""
+
+    def fill_image(self, payload: dict):
+        feed = JSONFeedItem.model_validate(payload)
+        if not feed.image and feed.author and feed.author.avatar:
+            feed.image = feed.author.avatar
+        return feed.model_dump()
+
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response | PrettyJSONFeedResponse:
+        response = await call_next(request)
+        ct = response.headers.get("content-type")
+        if ct and ct.startswith("application/feed+json") and request.url.path.startswith("/api/rss/"):
+            response_body = b""
+            async for chunk in response.body_iterator:  # type: ignore
+                response_body += chunk
+            body = json.loads(response_body)
+            headers = dict(response.headers)
+            headers.pop("content-length", None)
+            if body.get("version") == "https://jsonfeed.org/version/1":
+                body["items"] = list(map(self.fill_image, body["items"]))
+            return PrettyJSONFeedResponse(body, status_code=response.status_code, headers=headers)
+        return response
+
+
+class FillFeedAuthorFromItemsMiddleware(BaseHTTPMiddleware):
+    """当 JSONFeed 顶层 author 不存在时，从 items 中取第一个有 author 的条目填充"""
+
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response | PrettyJSONFeedResponse:
+        response = await call_next(request)
+        ct = response.headers.get("content-type")
+        if ct and ct.startswith("application/feed+json") and request.url.path.startswith("/api/rss/"):
+            response_body = b""
+            async for chunk in response.body_iterator:  # type: ignore
+                response_body += chunk
+            body = json.loads(response_body)
+            headers = dict(response.headers)
+            headers.pop("content-length", None)
+            if body.get("version") == "https://jsonfeed.org/version/1" and not body.get("author"):
+                for item in body.get("items", []):
+                    if item.get("author"):
+                        body["author"] = item["author"]
+                        break
+            return PrettyJSONFeedResponse(body, status_code=response.status_code, headers=headers)
+        return response
 
 
 class MarkdownRenderMiddleware(BaseHTTPMiddleware):
