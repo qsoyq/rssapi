@@ -2,24 +2,24 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-from rssapi.applications.rss.schemas.github import AuthorSchema
+from rssapi.applications.github.schemas import AuthorSchema
 
 
 class GithubIssueState(str, Enum):
-    open = 'open'
-    closed = 'closed'
-    all = 'all'
+    open = "open"
+    closed = "closed"
+    all = "all"
 
 
 class GithubIssueSort(str, Enum):
-    created = 'created'
-    updated = 'updated'
-    comments = 'comments'
+    created = "created"
+    updated = "updated"
+    comments = "comments"
 
 
 class GithubIssueDirection(str, Enum):
-    asc = 'asc'
-    desc = 'desc'
+    asc = "asc"
+    desc = "desc"
 
 
 class GithubIssue(BaseModel):

@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 
-from rssapi.applications.rss.schemas.github import AuthorSchema
+from rssapi.applications.github.schemas import AuthorSchema
 
 
 class NotificationRepositorySchema(BaseModel):

@@ -6,7 +6,7 @@ from itertools import chain
 import pytz
 from fastapi import APIRouter, Path, Query, Request
 
-from rssapi.applications.rss.schemas.nga.thread import Thread
+from rssapi.applications.nga.schemas import Thread
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed
 from rssapi.core.responses import PrettyJSONFeedResponse
 from rssapi.utils.cache import RandomTTLCache, cached

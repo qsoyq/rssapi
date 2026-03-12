@@ -4,10 +4,10 @@ from typing import Any, cast
 import httpx
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 
-from rssapi.applications.rss.schemas.f50 import Message
+from rssapi.applications.f50.schemas import Message
+from rssapi.applications.f50.utils import SMS
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
-from rssapi.utils.f50 import SMS
 
 router = APIRouter(tags=["RSS"], prefix="/rss/f50")
 

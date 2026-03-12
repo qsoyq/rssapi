@@ -6,7 +6,7 @@ import markdown
 from asyncache import cached
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 
-from rssapi.applications.rss.schemas.github.releases import AssetSchema, AuthorSchema, ReleaseSchema
+from rssapi.applications.github.schemas.releases import AssetSchema, AuthorSchema, ReleaseSchema
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
 from rssapi.utils.cache import RandomTTLCache

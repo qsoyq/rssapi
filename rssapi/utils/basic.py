@@ -24,7 +24,7 @@ from bs4 import BeautifulSoup as Soup
 from bs4 import Tag
 
 from rssapi.applications.rss.schemas.adapter import HttpUrl
-from rssapi.applications.rss.schemas.rss.telegram import TelegramChannalMessage
+from rssapi.applications.telegram.schemas import TelegramChannalMessage
 
 logger = logging.getLogger(__file__)
 
