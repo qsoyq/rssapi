@@ -85,6 +85,8 @@ def title_emoji_prefix_from_tweet(tweet: Tweet) -> str:
         prefix_parts.append("📸")
     if is_retweet:
         prefix_parts.append("🔁")
+    if tweet.quoted_tweet:
+        prefix_parts.append("💬")
     return " ".join(prefix_parts)
 
 
@@ -210,5 +212,19 @@ def content_html_from_tweet(tweet: Tweet) -> str:
                 content_html += (
                     f'<video src="{m.url}" width="{m.width}" height="{m.height}" controls preload="metadata"></video>'
                 )
+
+    if tweet.quoted_tweet:
+        qt = tweet.quoted_tweet
+        qt_screen_name = html.escape(qt.author.screen_name)
+        qt_name = html.escape(qt.author.name)
+        qt_text = html.escape(text_without_tco_links(qt.text))
+        qt_url = f"https://x.com/{qt_screen_name}/status/{qt.id}"
+        content_html += (
+            f"<blockquote>"
+            f'<p><a href="https://x.com/{qt_screen_name}"><b>{qt_name}</b> @{qt_screen_name}</a></p>'
+            f"<p>{qt_text}</p>"
+            f'<p><a href="{qt_url}">Original</a></p>'
+            f"</blockquote>"
+        )
 
     return content_html
