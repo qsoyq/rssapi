@@ -12,8 +12,13 @@ from twitter_cli.client import TwitterClient
 from twitter_cli.config import load_config
 
 from rssapi.applications.twitter.types import Tweet
+from rssapi.core.settings import settings
+from rssapi.utils.sync import async_semaphore
 
 logger = logging.getLogger(__file__)
+
+_twitter_fetch_semaphore = asyncio.Semaphore(settings.twitter.fetch_concurrency)
+
 
 HTTP_URL_PATTERN = re.compile(r"https?://\S+")
 TCO_URL_PATTERN = re.compile(r"https://t\.co/\S+")
@@ -158,6 +163,7 @@ def _fetch_feed_sync(max_tweets: int, cookies: str, feed_type: str) -> list[Twee
     return _to_rssapi_tweets(tweets)
 
 
+@async_semaphore(_twitter_fetch_semaphore)
 async def fetch_feed(max_tweets: int, cookies: str, feed_type: str = "for-you") -> list[Tweet]:
     try:
         return await asyncio.to_thread(_fetch_feed_sync, max_tweets, cookies, feed_type)
@@ -185,6 +191,7 @@ def _fetch_user_posts_sync(screen_name: str, max_tweets: int, cookies: str) -> l
     ]
 
 
+@async_semaphore(_twitter_fetch_semaphore)
 async def fetch_user_posts(screen_name: str, max_tweets: int, cookies: str) -> list[Tweet]:
     try:
         return await asyncio.to_thread(_fetch_user_posts_sync, screen_name, max_tweets, cookies)

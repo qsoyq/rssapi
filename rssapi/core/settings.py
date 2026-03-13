@@ -10,10 +10,22 @@ run_at = get_date_string_for_shanghai(run_at_ts)
 version = importlib.metadata.version("rssapi")
 
 
+class TwitterSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="RSS_TWITTER_",
+        env_file=".env",
+        extra="ignore",
+    )
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    fetch_concurrency: int = 5
+
+
 class AppSettings(BaseSettings):  # type:ignore
     api_prefix: str = "/api"
     basic_auth_user: str = "root"
     basic_auth_passwd: str = "example"
+
+    twitter: TwitterSettings = TwitterSettings()
 
     cloud_scraper_verify: bool = False
     # rss
@@ -30,3 +42,6 @@ class AppSettings(BaseSettings):  # type:ignore
 
     # meta
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+
+settings = AppSettings()
