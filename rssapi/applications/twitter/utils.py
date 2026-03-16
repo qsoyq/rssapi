@@ -3,8 +3,9 @@ import contextlib
 import html
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict
+from functools import wraps
 from typing import Any, Iterator
 
 import twitter_cli.auth as twitter_auth
@@ -131,12 +132,13 @@ def _build_twitter_client(
 ) -> TwitterClient:
     rate_limit_config = load_config().get("rateLimit")
     if auth_token and ct0:
-        return TwitterClient(auth_token, ct0, rate_limit_config, cookie_string=cookie_string)
+        return MyTwitterClient(auth_token, ct0, rate_limit_config, cookie_string=cookie_string)
 
+    raise RuntimeError("auth_token or ct0 is not found in cookies")
     with _mock_twitter_extract_from_browser():
         cookies = twitter_auth.get_cookies()
 
-    return TwitterClient(
+    return MyTwitterClient(
         cookies["auth_token"],
         cookies["ct0"],
         rate_limit_config,
@@ -235,3 +237,66 @@ def content_html_from_tweet(tweet: Tweet) -> str:
         )
 
     return content_html
+
+
+def new_get_instructions(
+    original_get_instructions: Callable[[Any], Any],
+) -> Callable[[Any], Any]:
+    """过滤掉广告推文"""
+
+    filter_components = [
+        "for_you_pinned",
+        "community_to_join",
+        "suggest_who_to_subscribe",
+        "suggest_who_to_follow",
+        "premium-plus-upsell-prompt",
+        "for_you_promoted",
+        "following_promoted",
+    ]
+
+    @wraps(original_get_instructions)
+    def wrapped(data: Any) -> Any:
+        instructions = original_get_instructions(data)
+        if not isinstance(instructions, list):
+            return instructions
+
+        for instruction in instructions:
+            entries = instruction.get("entries")
+
+            if entries is not None and isinstance(entries, list):
+                component_set = set()
+                filtered_entries = []
+                for entry in entries:
+                    try:
+                        component = entry.get("content", {}).get("clientEventInfo", {}).get("component")
+                        if component is not None and component in filter_components:
+                            logger.debug(f"discard entry: {entry.get('entryId')} - {component}")
+                        else:
+                            filtered_entries.append(entry)
+                            component_set.add(component)
+                    except Exception:
+                        filtered_entries.append(entry)
+                instruction["entries"] = filtered_entries
+                logger.debug(f"component_set: {component_set}")
+        return instructions
+
+    return wrapped
+
+
+class MyTwitterClient(TwitterClient):
+    def _fetch_timeline(
+        self,
+        operation_name,
+        count,
+        get_instructions,
+        extra_variables=None,
+        override_base_variables=False,
+        field_toggles=None,
+    ):
+        logger.debug(
+            f"operation_name: {operation_name}, count: {count}, get_instructions: {get_instructions}, extra_variables: {extra_variables}, override_base_variables: {override_base_variables}, field_toggles: {field_toggles}"
+        )
+        _get_instructions = new_get_instructions(get_instructions)
+        return super()._fetch_timeline(
+            operation_name, count, _get_instructions, extra_variables, override_base_variables, field_toggles
+        )
