@@ -10,6 +10,10 @@ twitter_cli_module = cast(Any, sys.modules.setdefault("twitter_cli", types.Modul
 twitter_auth_module = cast(Any, sys.modules.setdefault("twitter_cli.auth", types.ModuleType("twitter_cli.auth")))
 twitter_client_module = cast(Any, sys.modules.setdefault("twitter_cli.client", types.ModuleType("twitter_cli.client")))
 twitter_config_module = cast(Any, sys.modules.setdefault("twitter_cli.config", types.ModuleType("twitter_cli.config")))
+twitter_models_module = cast(Any, sys.modules.setdefault("twitter_cli.models", types.ModuleType("twitter_cli.models")))
+twitter_exceptions_module = cast(
+    Any, sys.modules.setdefault("twitter_cli.exceptions", types.ModuleType("twitter_cli.exceptions"))
+)
 
 if not hasattr(twitter_auth_module, "extract_from_browser"):
     twitter_auth_module.extract_from_browser = lambda: None
@@ -24,10 +28,28 @@ if not hasattr(twitter_client_module, "TwitterClient"):
     twitter_client_module.TwitterClient = _StubTwitterClient
 if not hasattr(twitter_config_module, "load_config"):
     twitter_config_module.load_config = lambda: {}
+if not hasattr(twitter_models_module, "UserProfile"):
+
+    class _StubUserProfile:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    twitter_models_module.UserProfile = _StubUserProfile
+
+if not hasattr(twitter_exceptions_module, "TwitterAPIError"):
+
+    class _StubTwitterAPIError(Exception):
+        def __init__(self, status_code=0, message=""):
+            self.status_code = status_code
+            self.message = message
+
+    twitter_exceptions_module.TwitterAPIError = _StubTwitterAPIError
 
 twitter_cli_module.auth = twitter_auth_module
 twitter_cli_module.client = twitter_client_module
 twitter_cli_module.config = twitter_config_module
+twitter_cli_module.models = twitter_models_module
+twitter_cli_module.exceptions = twitter_exceptions_module
 
 from rssapi.applications.twitter import patch as twitter_patch  # noqa: E402
 from rssapi.applications.twitter import utils as twitter_utils  # noqa: E402
@@ -130,7 +152,7 @@ def test_build_twitter_client_prefers_explicit_tokens(monkeypatch: pytest.Monkey
             captured["cookie_string"] = cookie_string
 
     monkeypatch.setattr(twitter_utils, "load_config", lambda: {"rateLimit": {"limit": 10}})
-    monkeypatch.setattr(twitter_utils, "TwitterClient", FakeTwitterClient)
+    monkeypatch.setattr(twitter_utils, "MyTwitterClient", FakeTwitterClient)
     monkeypatch.setattr(
         twitter_utils.twitter_auth,
         "get_cookies",

@@ -22,7 +22,7 @@ router = APIRouter(tags=["RSS"], prefix="/rss/twitter")
 async def posts(
     req: Request,
     screen_name: str = Path(..., description="Twitter 用户名"),
-    max_tweets: int = Query(50, description="最大推文数"),
+    max_tweets: int = Query(20, description="最大推文数"),
     cookies: str | None = Query(None, description="Twitter 用户 cookie"),
     x_twitter_cookie: str | None = Header(None, description="Twitter 用户 cookie", alias="X-Twitter-Cookie"),
 ):
@@ -32,7 +32,6 @@ async def posts(
 
     if cookies is None:
         raise HTTPException(status_code=401, detail="cookies or X-Twitter-Cookie are required")
-
     items = await fetch_user_posts_jsonfeed_items(screen_name, max_tweets, cookies)
     host = req.url.hostname
     feed: dict[str, Any] = {
@@ -66,7 +65,7 @@ async def posts(
 async def timeline(
     req: Request,
     feed_type: Literal["for-you", "following"] = Path(..., description="Timeline 类型"),
-    max_tweets: int = Query(50, description="最大推文数"),
+    max_tweets: int = Query(20, description="最大推文数"),
     cookies: str | None = Query(None, description="Twitter 用户 cookie"),
     x_twitter_cookie: str | None = Header(None, description="Twitter 用户 cookie", alias="X-Twitter-Cookie"),
 ):

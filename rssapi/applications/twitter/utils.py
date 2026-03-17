@@ -308,3 +308,6 @@ class MyTwitterClient(TwitterClient):
         return super()._fetch_timeline(
             operation_name, count, _get_instructions, extra_variables, override_base_variables, field_toggles
         )
+
+    def _api_request(self, url, method="GET", body=None):
+        return super()._api_request(url, method, body)

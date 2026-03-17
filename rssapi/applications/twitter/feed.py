@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable
 
 from asyncache import cached
 from fastapi import HTTPException
+from twitter_cli.exceptions import TwitterAPIError
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
 from rssapi.applications.twitter.types import Tweet
@@ -66,10 +67,13 @@ async def _fetch_and_convert(
     except json.JSONDecodeError as e:
         logger.error(f"failed to parse Twitter response: {e}")
         raise HTTPException(status_code=500, detail="Failed to parse Twitter response")
+    except TwitterAPIError as e:
+        # TODO: 基于 429 状态码设置熔断
+        logger.error(f"request twitter api error with label {label}: {e}")
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         logger.error(f"failed to fetch {label}: {e}")
-        status_code = 429 if "429" in str(e) else 500
-        raise HTTPException(status_code=status_code, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
     logger.info(f"fetched {len(posts)} tweets for {label}")
 
     if len(posts) == 0:
