@@ -5,12 +5,13 @@ import logging
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import asdict
-from functools import wraps
+from functools import lru_cache, wraps
 from typing import Any, Iterator
 
 import twitter_cli.auth as twitter_auth
 from twitter_cli.client import TwitterClient
 from twitter_cli.config import load_config
+from twitter_cli.models import UserProfile
 
 from rssapi.applications.twitter.types import Tweet
 from rssapi.core.settings import settings
@@ -174,6 +175,13 @@ async def fetch_feed(max_tweets: int, cookies: str, feed_type: str = "for-you") 
         raise
 
 
+@lru_cache(maxsize=1024)
+def _fetch_user_profile(screen_name: str, auth_token: str, ct0: str) -> UserProfile:
+    client = _build_twitter_client(auth_token, ct0)
+    profile = client.fetch_user(screen_name)
+    return profile
+
+
 def _fetch_user_posts_sync(screen_name: str, max_tweets: int, cookies: str) -> list[Tweet]:
     parsed_cookies = _parse_cookie_header(cookies)
     auth_token = parsed_cookies.get("auth_token")
@@ -181,8 +189,8 @@ def _fetch_user_posts_sync(screen_name: str, max_tweets: int, cookies: str) -> l
     if not auth_token or not ct0:
         raise RuntimeError("auth_token or ct0 is not found in cookies")
 
-    client = _build_twitter_client(auth_token, ct0, cookie_string=cookies)
-    profile = client.fetch_user(screen_name)
+    client = _build_twitter_client(auth_token, ct0, None)
+    profile = _fetch_user_profile(screen_name, auth_token, ct0)
     tweets = client.fetch_user_tweets(profile.id, max_tweets)
     normalized_screen_name = screen_name.casefold()
     rssapi_tweets = _to_rssapi_tweets(tweets)
