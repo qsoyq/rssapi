@@ -4,7 +4,6 @@ import re
 from typing import Awaitable, Callable, cast
 
 import httpx
-import markdown
 from bs4 import BeautifulSoup as Soup
 from bs4 import Tag
 from cachetools import FIFOCache, cached
@@ -14,6 +13,7 @@ from starlette.responses import Response
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
+from rssapi.utils.md import markdown_parse
 
 app = FastAPI()
 logger = logging.getLogger(__file__)
@@ -30,6 +30,7 @@ def add_middleware(app: FastAPI):
         FillFeedAuthorFromItemsMiddleware,
         FillImageFromAuthorAvatarMiddleware,
         FillFeedIconFromAuthorAvatarMiddleware,
+        ExtractHashtagMiddleware,
     ]
     for middleware in middlewares:
         app.add_middleware(middleware)
@@ -208,6 +209,40 @@ class NGAFeedFilterMiddleware(BaseFeedFilterMiddleware):
     MATCH_URL_PATTERN = r"/api/rss/nga/"
 
 
+class ExtractHashtagMiddleware(BaseHTTPMiddleware):
+    """从 content_text 或 content_html 中提取 hashtag 并写入 tags 字段"""
+
+    HASHTAG_PATTERN = re.compile(r"#(\w+)", re.UNICODE)
+
+    def extract_hashtags(self, payload: dict) -> dict:
+        feed = JSONFeedItem.model_validate(payload)
+        text = feed.content_text or feed.content_html
+        if text:
+            found = self.HASHTAG_PATTERN.findall(text)
+            if found:
+                existing = set(feed.tags or [])
+                existing.update(f"#{tag}" for tag in found)
+                feed.tags = sorted(existing)
+        return feed.model_dump()
+
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response | PrettyJSONFeedResponse:
+        response = await call_next(request)
+        ct = response.headers.get("content-type")
+        if ct and ct.startswith("application/feed+json") and request.url.path.startswith("/api/rss/"):
+            response_body = b""
+            async for chunk in response.body_iterator:  # type: ignore
+                response_body += chunk
+            body = json.loads(response_body)
+            headers = dict(response.headers)
+            headers.pop("content-length", None)
+            if body.get("version") == "https://jsonfeed.org/version/1":
+                body["items"] = list(map(self.extract_hashtags, body["items"]))
+            return PrettyJSONFeedResponse(body, status_code=response.status_code, headers=headers)
+        return response
+
+
 class FillImageFromAuthorAvatarMiddleware(BaseHTTPMiddleware):
     """当 item.image 不存在且 author.avatar 存在时，用 avatar 填充 image"""
 
@@ -290,7 +325,7 @@ class MarkdownRenderMiddleware(BaseHTTPMiddleware):
         feed = JSONFeedItem.model_validate(payload)
         if feed.content_text and not feed.content_html:
             try:
-                feed.content_html = markdown.markdown(feed.content_text)
+                feed.content_html = markdown_parse(feed.content_text)
                 feed.content_text = None
             except Exception:
                 pass

@@ -2,7 +2,6 @@ import logging
 from typing import Any, cast
 
 import httpx
-import markdown
 from asyncache import cached
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 
@@ -10,6 +9,7 @@ from rssapi.applications.github.schemas.releases import AssetSchema, AuthorSchem
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
 from rssapi.utils.cache import RandomTTLCache
+from rssapi.utils.md import markdown_parse
 
 router = APIRouter(tags=["RSS"], prefix="/rss/github/releases")
 
@@ -89,7 +89,7 @@ async def fetch_feeds(owner: str, repo: str, token: str | None, per_page: int, p
             "attachments": [],
         }
         if payload["content_text"]:
-            payload["content_html"] = markdown.markdown(payload.pop("content_text"))
+            payload["content_html"] = markdown_parse(payload.pop("content_text"))
 
         for _asset in release.assets or []:
             asset = AssetSchema(**cast(dict, _asset))

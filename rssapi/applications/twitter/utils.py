@@ -6,9 +6,8 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from functools import lru_cache, wraps
-from typing import Any, Iterator, cast
+from typing import Any, Iterator
 
-import markdown
 import twitter_cli.auth as twitter_auth
 from twitter_cli.client import TwitterClient
 from twitter_cli.config import load_config
@@ -16,6 +15,7 @@ from twitter_cli.models import UserProfile
 
 from rssapi.applications.twitter.types import Tweet
 from rssapi.core.settings import settings
+from rssapi.utils.md import markdown_parse
 from rssapi.utils.sync import async_semaphore
 
 logger = logging.getLogger(__file__)
@@ -71,14 +71,6 @@ def text_without_tco_links(text: str) -> str:
     """Remove all https://t.co links from text while keeping surrounding text readable."""
     text = TCO_URL_PATTERN.sub("", text)
     return _normalize_text_whitespace(text)
-
-
-def markdown_parse(text: str) -> str:
-    try:
-        return cast(str, markdown.markdown(text))
-    except Exception as e:
-        logger.warning(f"failed to parse markdown: {e}")
-        return text
 
 
 def title_emoji_prefix_from_tweet(tweet: Tweet) -> str:

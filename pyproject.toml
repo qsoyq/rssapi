@@ -1,6 +1,6 @@
 [project]
 name = "rssapi"
-version = "0.2.15"
+version = "0.2.16"
 description = "RSS subscription tool"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -181,6 +181,7 @@ module = [
     "asyncache.*",
     "js2py",
     "markdown",
+    "markdown.*",
     "psutil",
     "curl_cffi",
     "playwright.*",

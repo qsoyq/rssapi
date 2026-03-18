@@ -3,7 +3,6 @@ import logging
 from itertools import chain
 from typing import Any
 
-import markdown
 from asyncache import cached
 from fastapi import APIRouter, Query, Request
 
@@ -11,6 +10,7 @@ from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
 from rssapi.utils.basic import TelegramToolkit
 from rssapi.utils.cache import RandomTTLCache
+from rssapi.utils.md import markdown_parse
 
 router = APIRouter(tags=["RSS"], prefix="/rss/telegram")
 
@@ -55,7 +55,7 @@ async def fetch_feeds(channels: list[str]) -> list[JSONFeedItem]:
     for message in chain(*tasks):
         if message.contentHtml:
             try:
-                message.contentHtml = markdown.markdown(message.contentHtml)
+                message.contentHtml = markdown_parse(message.contentHtml)
             except Exception as e:
                 logger.warning(f"convert markdown to html failed: {e}")
         payload = {
