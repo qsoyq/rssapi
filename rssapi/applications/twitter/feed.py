@@ -68,7 +68,6 @@ async def _fetch_and_convert(
         logger.error(f"failed to parse Twitter response: {e}")
         raise HTTPException(status_code=500, detail="Failed to parse Twitter response")
     except TwitterAPIError as e:
-        # TODO: 基于 429 状态码设置熔断
         logger.error(f"request twitter api error with label {label}: {e}")
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:

@@ -6,8 +6,9 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from functools import lru_cache, wraps
-from typing import Any, Iterator
+from typing import Any, Iterator, cast
 
+import markdown
 import twitter_cli.auth as twitter_auth
 from twitter_cli.client import TwitterClient
 from twitter_cli.config import load_config
@@ -70,6 +71,14 @@ def text_without_tco_links(text: str) -> str:
     """Remove all https://t.co links from text while keeping surrounding text readable."""
     text = TCO_URL_PATTERN.sub("", text)
     return _normalize_text_whitespace(text)
+
+
+def markdown_parse(text: str) -> str:
+    try:
+        return cast(str, markdown.markdown(text))
+    except Exception as e:
+        logger.warning(f"failed to parse markdown: {e}")
+        return text
 
 
 def title_emoji_prefix_from_tweet(tweet: Tweet) -> str:
@@ -219,7 +228,8 @@ def content_html_from_tweet(tweet: Tweet) -> str:
 
     if tweet.text:
         text = text_without_tco_links(tweet.text)
-        content_html += f"<p>{html.escape(text)}</p>"
+        text = markdown_parse(text)
+        content_html += f"{text}"
 
     for m in tweet.media:
         match m.type:
@@ -234,12 +244,12 @@ def content_html_from_tweet(tweet: Tweet) -> str:
         qt = tweet.quoted_tweet
         qt_screen_name = html.escape(qt.author.screen_name)
         qt_name = html.escape(qt.author.name)
-        qt_text = html.escape(text_without_tco_links(qt.text))
+        qt_text = markdown_parse(text_without_tco_links(qt.text))
         qt_url = f"https://x.com/{qt_screen_name}/status/{qt.id}"
         content_html += (
             f"<blockquote>"
             f'<p><a href="https://x.com/{qt_screen_name}"><b>{qt_name}</b> @{qt_screen_name}</a></p>'
-            f"<p>{qt_text}</p>"
+            f"{qt_text}"
             f'<p><a href="{qt_url}">Original</a></p>'
             f"</blockquote>"
         )
