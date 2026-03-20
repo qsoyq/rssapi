@@ -8,15 +8,27 @@ from bs4 import BeautifulSoup as Soup
 from bs4 import Tag
 from cachetools import FIFOCache, cached
 from fastapi import FastAPI, Request
+from pydantic import ValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+from rssapi.applications.rss.schemas.adapter import HttpUrlTypeAdapter
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
 from rssapi.utils.md import markdown_parse
 
 app = FastAPI()
 logger = logging.getLogger(__file__)
+
+
+def is_valid_http_url(value: str | None) -> bool:
+    if not value:
+        return False
+    try:
+        HttpUrlTypeAdapter.validate_python(value)
+    except ValidationError:
+        return False
+    return True
 
 
 def add_middleware(app: FastAPI):
@@ -244,11 +256,14 @@ class ExtractHashtagMiddleware(BaseHTTPMiddleware):
 
 
 class FillImageFromAuthorAvatarMiddleware(BaseHTTPMiddleware):
-    """当 item.image 不存在且 author.avatar 存在时，用 avatar 填充 image"""
+    """当 item.image 不存在且 author.avatar 存在时，用 avatar 填充 image
+
+    TODO: 支持将 base64 转成URL
+    """
 
     def fill_image(self, payload: dict):
         feed = JSONFeedItem.model_validate(payload)
-        if not feed.image and feed.author and feed.author.avatar:
+        if not feed.image and feed.author and is_valid_http_url(feed.author.avatar):
             feed.image = feed.author.avatar
         return feed.model_dump()
 
