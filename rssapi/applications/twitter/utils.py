@@ -219,7 +219,7 @@ def content_html_from_tweet(tweet: Tweet) -> str:
         content_html += f'<p>🔁 RT by <a href="https://x.com/{rt_name}">@{rt_name}</a></p>'
 
     if tweet.text:
-        text = text_without_tco_links(tweet.text)
+        text = tweet.text
         text = markdown_parse(text)
         content_html += f"{text}"
 
@@ -236,7 +236,7 @@ def content_html_from_tweet(tweet: Tweet) -> str:
         qt = tweet.quoted_tweet
         qt_screen_name = html.escape(qt.author.screen_name)
         qt_name = html.escape(qt.author.name)
-        qt_text = markdown_parse(text_without_tco_links(qt.text))
+        qt_text = markdown_parse(qt.text)
         qt_url = f"https://x.com/{qt_screen_name}/status/{qt.id}"
         content_html += (
             f"<blockquote>"
