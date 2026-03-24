@@ -3,7 +3,7 @@ from typing import Any, cast
 
 import httpx
 from asyncache import cached
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
 
 from rssapi.applications.github.schemas.notifications import NotificationSchema
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
@@ -42,6 +42,70 @@ async def notifications(
 
     This endpoint does not work with GitHub App user access tokens, GitHub App installation access tokens, or fine-grained personal access tokens.
     """
+    return await build_notifications_feed(req, token, all_, participating, since, before, per_page, page)
+
+
+@router.get(
+    "/user",
+    summary="Github Repo Notifications RSS",
+)
+async def notifications_without_path_token(
+    req: Request,
+    token: str | None = Query(
+        None,
+        description="Github User API Token, Personal access tokens (classic). 可与 X-Github-Api-Token 二选一；若同时提供则优先使用 X-Github-Api-Token",
+    ),
+    x_github_api_token: str | None = Header(
+        None,
+        description="Github User API Token, Personal access tokens (classic). 可与 query 参数 token 二选一；若同时提供则优先使用当前请求头",
+        alias="X-Github-Api-Token",
+    ),
+    all_: bool = Query(False, description="If true, show notifications marked as read.", alias="all"),
+    participating: bool = Query(
+        False,
+        description="If true, only shows notifications in which the user is directly participating or mentioned.",
+    ),
+    since: str | None = Query(
+        None,
+        description="Only show results that were last updated after the given time. This is a timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
+    ),
+    before: str | None = Query(
+        None,
+        description="Only show results that were last updated after the given time. This is a timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
+    ),
+    per_page: int = Query(50, ge=1, le=50),
+    page: int = Query(1, ge=1),
+):
+    """
+    Github API Token 支持两种传法，二选一即可：
+    - query 参数 `token`
+    - 请求头 `X-Github-Api-Token`
+    若同时提供，优先使用 `X-Github-Api-Token`
+
+    参数详见文档: https://docs.github.com/en/rest/activity/notifications?apiVersion=2022-11-28#list-notifications-for-the-authenticated-user
+
+    This endpoint does not work with GitHub App user access tokens, GitHub App installation access tokens, or fine-grained personal access tokens.
+    """
+    effective_token = x_github_api_token if x_github_api_token is not None else token
+    if effective_token is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Github API Token is required via query parameter `token` or header `X-Github-Api-Token`",
+        )
+
+    return await build_notifications_feed(req, effective_token, all_, participating, since, before, per_page, page)
+
+
+async def build_notifications_feed(
+    req: Request,
+    token: str,
+    all_: bool,
+    participating: bool,
+    since: str | None,
+    before: str | None,
+    per_page: int,
+    page: int,
+):
     host = req.url.hostname
     items: list[JSONFeedItem] = await fetch_feeds(token, all_, participating, since, before, per_page, page)
     feed = {

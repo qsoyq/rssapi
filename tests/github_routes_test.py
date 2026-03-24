@@ -69,3 +69,23 @@ def test_github_commits_header_token_has_higher_priority_than_query(client: Test
     )
     assert response.status_code == 200, response.text
     assert response.json()["items"]
+
+
+def test_github_notifications_supports_query_token(client: TestClient):
+    path = "/api/rss/github/notifications/user"
+    token = require_github_token()
+    response = client.get(path, params={"token": token})
+    assert response.status_code == 200, response.text
+    assert isinstance(response.json()["items"], list)
+
+
+def test_github_notifications_header_token_has_higher_priority_than_query(client: TestClient):
+    path = "/api/rss/github/notifications/user"
+    token = require_github_token()
+    response = client.get(
+        path,
+        params={"token": "invalid-query-token"},
+        headers={"X-Github-Api-Token": token},
+    )
+    assert response.status_code == 200, response.text
+    assert isinstance(response.json()["items"], list)
