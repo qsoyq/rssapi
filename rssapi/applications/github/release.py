@@ -3,7 +3,7 @@ from typing import Any, cast
 
 import httpx
 from asyncache import cached
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
 
 from rssapi.applications.github.schemas.releases import AssetSchema, AuthorSchema, ReleaseSchema
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
@@ -24,17 +24,31 @@ logger = logging.getLogger(__file__)
 )
 async def releases_list(
     req: Request,
-    token: str | None = Query(None, description="Github API Token"),
+    token: str | None = Query(
+        None,
+        description="Github API Token，可与 X-Github-Api-Token 二选一；若同时提供则优先使用 X-Github-Api-Token",
+    ),
+    x_github_api_token: str | None = Header(
+        None,
+        description="Github API Token，可与 query 参数 token 二选一；若同时提供则优先使用当前请求头",
+        alias="X-Github-Api-Token",
+    ),
     owner: str = Path(..., description="Github Repo Owner"),
     repo: str = Path(..., description="Github Repo Name"),
     per_page: int = Query(10, ge=1, le=100),
     page: int = Query(1, ge=1),
 ):
     """
+    Github API Token 支持两种传法，二选一即可：
+    - query 参数 `token`
+    - 请求头 `X-Github-Api-Token`
+    若同时提供，优先使用 `X-Github-Api-Token`
+
     参数详见文档: https://docs.github.com/en/rest/releases/releases#list-releases
     """
+    effective_token = x_github_api_token if x_github_api_token is not None else token
     host = req.url.hostname
-    items: list[JSONFeedItem] = await fetch_feeds(owner, repo, token, per_page, page)
+    items: list[JSONFeedItem] = await fetch_feeds(owner, repo, effective_token, per_page, page)
     feed = {
         "version": "https://jsonfeed.org/version/1",
         "title": f"{owner}/{repo}",

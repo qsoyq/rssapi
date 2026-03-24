@@ -3,7 +3,7 @@ from typing import Any
 
 import httpx
 from asyncache import cached
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
 
 from rssapi.applications.github.schemas.issues import GithubIssue
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
@@ -23,7 +23,15 @@ logger = logging.getLogger(__file__)
 )
 async def commits_list(
     req: Request,
-    token: str | None = Query(None, description="Github API Token"),
+    token: str | None = Query(
+        None,
+        description="Github API Token，可与 X-Github-Api-Token 二选一；若同时提供则优先使用 X-Github-Api-Token",
+    ),
+    x_github_api_token: str | None = Header(
+        None,
+        description="Github API Token，可与 query 参数 token 二选一；若同时提供则优先使用当前请求头",
+        alias="X-Github-Api-Token",
+    ),
     owner: str = Path(..., description="Github Repo Owner"),
     repo: str = Path(..., description="Github Repo Name"),
     per_page: int = Query(30, ge=1, le=100),
@@ -32,10 +40,16 @@ async def commits_list(
     """
     此接口未token疑似会触发限流
 
+    Github API Token 支持两种传法，二选一即可：
+    - query 参数 `token`
+    - 请求头 `X-Github-Api-Token`
+    若同时提供，优先使用 `X-Github-Api-Token`
+
     参数详见文档: https://docs.github.com/en/rest/issues/issues?apiVersion=2022-11-28
     """
+    effective_token = x_github_api_token if x_github_api_token is not None else token
     host = req.url.hostname
-    items: list[JSONFeedItem] = await fetch_feeds(owner, repo, token, per_page, page)
+    items: list[JSONFeedItem] = await fetch_feeds(owner, repo, effective_token, per_page, page)
     feed = {
         "version": "https://jsonfeed.org/version/1",
         "title": f"{owner}/{repo}",
