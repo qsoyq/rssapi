@@ -10,6 +10,7 @@ class GithubTestSettings(BaseSettings):
 
 class V2exTestSettings(BaseSettings):
     test_v2ex_token: str | None = None
+    test_v2ex_session_key: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

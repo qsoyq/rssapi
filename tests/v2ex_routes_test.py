@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from tests import Settings
 
+from rssapi.applications.v2ex.router import _resolve_favorite_session_key
 from rssapi.main import app
 
 
@@ -18,11 +19,39 @@ def require_v2ex_token() -> str:
     return token
 
 
+def require_v2ex_session_key() -> str:
+    session_key = Settings().v2ex.test_v2ex_session_key
+    if session_key is None:
+        pytest.skip("No V2EX test session key configured")
+    return session_key
+
+
 def test_v2ex_aggregation(client: TestClient):
     response = client.get("/api/rss/jsonfeed/v2ex/aggregation", params={"topics": ["dns"]})
     assert response.status_code == 200
     assert response.json()["items"]
     assert response.json()["home_page_url"] == "https://v2ex.com/go/dns"
+
+
+def test_v2ex_favorite_requires_session_key(client: TestClient):
+    path = "/api/rss/jsonfeed/v2ex/favorite"
+    response = client.get(path)
+    assert response.status_code == 422
+    assert response.json()["detail"] == (
+        "V2ex session key from cookies.A2 is required via query parameter `session_key` or header `X-V2ex-Session-Key`"
+    )
+
+
+def test_v2ex_favorite_session_key_header_has_higher_priority_than_query():
+    assert _resolve_favorite_session_key("query-session-key", "header-session-key") == "header-session-key"
+
+
+def test_v2ex_favorite_supports_query_session_key(client: TestClient):
+    path = "/api/rss/jsonfeed/v2ex/favorite"
+    session_key = require_v2ex_session_key()
+    response = client.get(path, params={"session_key": session_key})
+    assert response.status_code == 200, response.text
+    assert isinstance(response.json()["items"], list)
 
 
 def test_v2ex_notifications_requires_token(client: TestClient):

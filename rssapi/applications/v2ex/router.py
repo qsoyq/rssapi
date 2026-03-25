@@ -68,15 +68,40 @@ async def aggregation(req: Request, topics: list[str] = Query([], description="�
     return feed
 
 
+def _resolve_favorite_session_key(session_key: str | None, x_v2ex_session_key: str | None) -> str:
+    # V2ex 登录态来自 cookies 里的 A2 字段；query 与 header 二选一，且 header 优先。
+    effective_session_key = x_v2ex_session_key if x_v2ex_session_key is not None else session_key
+    if effective_session_key is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "V2ex session key from cookies.A2 is required via query parameter `session_key` "
+                "or header `X-V2ex-Session-Key`"
+            ),
+        )
+    return effective_session_key
+
+
 @router.get(
     "/favorite", response_model=JSONFeed, summary="V2ex 收藏帖回复 RSS 订阅", response_class=PrettyJSONFeedResponse
 )
 def favorite(
     req: Request,
-    session_key: str = Query(..., description="V2ex 登录态,Cookie.A2"),
+    session_key: str | None = Query(
+        None,
+        description="来自 V2ex cookies 里的 A2 字段，可与 X-V2ex-Session-Key 二选一；若同时提供则优先使用 X-V2ex-Session-Key",
+    ),
+    x_v2ex_session_key: str | None = Header(
+        None,
+        description="来自 V2ex cookies 里的 A2 字段，可与 query 参数 session_key 二选一；若同时提供则优先使用当前请求头",
+        alias="X-V2ex-Session-Key",
+    ),
     page: int = Query(1, description="收藏页，默认为 1"),
 ):
     """RSS 收藏贴回复订阅
+
+    python -m pip install git+https://github.com/qsoyq/ai-assistant.git
+    ai-assistant cookies get v2ex.com www.v2ex.com --field A2
 
     https://www.v2ex.com/feed/{topic}.json
     """
@@ -91,7 +116,7 @@ def favorite(
         "favicon": "https://www.v2ex.com/favicon.ico",
         "items": items,
     }
-    ret = get_topics(session_key, page)
+    ret = get_topics(_resolve_favorite_session_key(session_key, x_v2ex_session_key), page)
     for topic in ret.topics:
         payload = {
             "author": {},
