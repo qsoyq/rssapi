@@ -8,5 +8,12 @@ class GithubTestSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
+class V2exTestSettings(BaseSettings):
+    test_v2ex_token: str | None = None
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+
 class Settings(BaseModel):
     github: GithubTestSettings = GithubTestSettings()
+    v2ex: V2exTestSettings = V2exTestSettings()

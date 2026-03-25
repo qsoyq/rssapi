@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 from asyncache import cached
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.applications.v2ex.schemas.notification import Notification
@@ -105,15 +105,7 @@ def favorite(
     return feed
 
 
-@router.get(
-    "/notifications/{token}",
-    summary="V2ex 个人通知提醒",
-    response_model=JSONFeed,
-    response_class=PrettyJSONFeedResponse,
-)
-async def notifications(
-    req: Request, page: int = Query(1, description="分页，默认为 1"), token: str = Path(..., description="API Token")
-):
+async def build_notifications_feed(req: Request, token: str, page: int) -> JSONFeed:
     items: list[JSONFeedItem] = []
     feed = {
         "version": "https://jsonfeed.org/version/1",
@@ -137,7 +129,7 @@ async def notifications(
 
     for item in notifications:
         _url = get_url_from_notification_text(item.text)
-        assert url, item.text
+        assert _url, item.text
 
         _title = get_title_from_notification_text(item.text)
         assert _title, item.text
@@ -150,4 +142,45 @@ async def notifications(
             "content_html": item.payload_rendered,
         }
         items.append(JSONFeedItem.model_validate(payload))
-    return feed
+    return JSONFeed.model_validate(feed)
+
+
+@router.get(
+    "/notifications",
+    summary="V2ex 个人通知提醒",
+    response_model=JSONFeed,
+    response_class=PrettyJSONFeedResponse,
+)
+async def notifications_without_path_token(
+    req: Request,
+    token: str | None = Query(
+        None,
+        description="V2ex API Token，可与 X-V2ex-Api-Token 二选一；若同时提供则优先使用 X-V2ex-Api-Token",
+    ),
+    x_v2ex_api_token: str | None = Header(
+        None,
+        description="V2ex API Token，可与 query 参数 token 二选一；若同时提供则优先使用当前请求头",
+        alias="X-V2ex-Api-Token",
+    ),
+    page: int = Query(1, description="分页，默认为 1"),
+):
+    effective_token = x_v2ex_api_token if x_v2ex_api_token is not None else token
+    if effective_token is None:
+        raise HTTPException(
+            status_code=422,
+            detail="V2ex API Token is required via query parameter `token` or header `X-V2ex-Api-Token`",
+        )
+
+    return await build_notifications_feed(req, effective_token, page)
+
+
+@router.get(
+    "/notifications/{token}",
+    summary="V2ex 个人通知提醒",
+    response_model=JSONFeed,
+    response_class=PrettyJSONFeedResponse,
+)
+async def notifications(
+    req: Request, page: int = Query(1, description="分页，默认为 1"), token: str = Path(..., description="API Token")
+):
+    return await build_notifications_feed(req, token, page)
