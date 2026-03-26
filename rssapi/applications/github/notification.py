@@ -1,13 +1,23 @@
+import datetime as _dt
 import logging
-from typing import Any, cast
+from typing import Any, Optional, cast
 
-import httpx
 from asyncache import cached
 from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
+from githubkit import GitHub, TokenAuthStrategy
+from githubkit.exception import RequestFailed
+from githubkit.versions.latest.models import Thread, ThreadPropSubject
 
-from rssapi.applications.github.schemas.notifications import NotificationSchema
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
 from rssapi.utils.cache import RandomTTLCache
+
+# GitHub API 实际返回的 latest_comment_url 可能为 null，但 githubkit OpenAPI spec 未标注为 nullable
+ThreadPropSubject.__annotations__["latest_comment_url"] = Optional[str]
+ThreadPropSubject.model_fields["latest_comment_url"].annotation = Optional[str]  # type: ignore[assignment]
+ThreadPropSubject.__pydantic_complete__ = False
+ThreadPropSubject.model_rebuild(_types_namespace={"Optional": Optional, "str": str})
+Thread.__pydantic_complete__ = False
+Thread.model_rebuild(force=True)
 
 router = APIRouter(tags=["RSS"], prefix="/rss/github/notifications")
 
@@ -132,36 +142,34 @@ async def fetch_feeds(
     per_page: int,
     page: int,
 ) -> list[JSONFeedItem]:
-    items = []
+    since_dt = _dt.datetime.fromisoformat(since) if since else None
+    before_dt = _dt.datetime.fromisoformat(before) if before else None
 
-    url = "https://api.github.com/notifications"
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    headers["Authorization"] = f"Bearer {token}"
-
-    params = {
+    kwargs: dict[str, Any] = {
+        "all_": all_,
+        "participating": participating,
         "per_page": per_page,
         "page": page,
-        "all": all_,
-        "participating": participating,
-        "since": since,
-        "before": before,
     }
-    params = {k: v for k, v in params.items() if v is not None}
-    async with httpx.AsyncClient(headers=headers) as client:
-        res = await client.get(url, params=params)
-        if res.is_error:
-            raise HTTPException(status_code=res.status_code, detail=res.text)
-        notifications: list[NotificationSchema] = [NotificationSchema(**x) for x in res.json()]
+    if since_dt is not None:
+        kwargs["since"] = since_dt
+    if before_dt is not None:
+        kwargs["before"] = before_dt
 
+    try:
+        async with GitHub(TokenAuthStrategy(token)) as github:
+            resp = await github.rest.activity.async_list_notifications_for_authenticated_user(**kwargs)
+    except RequestFailed as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text) from exc
+
+    notifications: list[Thread] = resp.parsed_data
+    items: list[JSONFeedItem] = []
     for notification in notifications:
-        url = get_url_by_notification(notification)
+        html_url = _get_html_url(notification)
         payload: dict[str, Any] = {
             "id": f"github-notifications-{notification.id}",
-            "url": url,
-            "title": f"{notification.subject.type} - {notification.subject.title}",
+            "url": html_url,
+            "title": f"{notification.subject.type} - {notification.repository.full_name} - {notification.subject.title}",
             "content_text": "",
             "date_published": notification.updated_at,
             "date_modified": notification.updated_at,
@@ -175,7 +183,7 @@ async def fetch_feeds(
     return items
 
 
-def get_url_by_notification(notification: NotificationSchema) -> str:
+def _get_html_url(notification: Thread) -> str:
     match notification.subject.type:
         case "Release":
             _, _, _, _, owner, repo, _, releaseid = notification.subject.url.split("/")
