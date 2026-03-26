@@ -58,6 +58,7 @@ repos:
                 - google-api-python-client
                 - typer-utils@git+https://github.com/qsoyq/typer_utils
                 - githubkit
+                - rdt-cli
 
     - repo: https://github.com/astral-sh/ruff-pre-commit
       rev: v0.14.14

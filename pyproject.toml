@@ -56,6 +56,7 @@ dependencies = [
     "twitter-cli==0.8.4",
     "ai-assistant@git+https://github.com/qsoyq/ai-assistant.git",
     "githubkit",
+    "rdt-cli>=0.4.1",
 ]
 
 [project.scripts]
@@ -195,6 +196,7 @@ module = [
     "ai_assistant.*",
     "githubkit",
     "githubkit.*",
+    "rdt_cli.*",
 ]
 ignore_missing_imports = true
 follow_untyped_imports = true

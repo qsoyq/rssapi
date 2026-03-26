@@ -3299,6 +3299,22 @@ wheels = [
 ]
 
 [[package]]
+name = "rdt-cli"
+version = "0.4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "browser-cookie3" },
+    { name = "click" },
+    { name = "httpx" },
+    { name = "pyyaml" },
+    { name = "rich" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/81/c8/a25ec69a9c51c05a46c25a651e114c1eae0f584188bc9a0563dcc4048b12/rdt_cli-0.4.1.tar.gz", hash = "sha256:1a41ce3730b00cf358bab8551cc84212503dcf74447b17ecd0ce2565a61d463a", size = 74053, upload-time = "2026-03-15T08:43:38.779Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/89/da/48b1883b84bf3e8afd26fcef8eef9ebf7fc1846e4e292349d35ace6a1fde/rdt_cli-0.4.1-py3-none-any.whl", hash = "sha256:fb9b8116c0cc3ecb686cf475610cb197e5324b0aae67006d2a66fb8808287d32", size = 40615, upload-time = "2026-03-15T08:43:37.508Z" },
+]
+
+[[package]]
 name = "regex"
 version = "2025.11.3"
 source = { registry = "https://pypi.org/simple" }
@@ -3501,6 +3517,7 @@ dependencies = [
     { name = "python-ssl-checker" },
     { name = "pytz" },
     { name = "pyyaml" },
+    { name = "rdt-cli" },
     { name = "ruff" },
     { name = "twitter-cli" },
     { name = "typer" },
@@ -3556,6 +3573,7 @@ requires-dist = [
     { name = "python-ssl-checker" },
     { name = "pytz" },
     { name = "pyyaml" },
+    { name = "rdt-cli", specifier = ">=0.4.1" },
     { name = "ruff" },
     { name = "twitter-cli", specifier = "==0.8.4" },
     { name = "typer" },
