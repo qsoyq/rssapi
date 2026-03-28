@@ -10,6 +10,15 @@ run_at = get_date_string_for_shanghai(run_at_ts)
 version = importlib.metadata.version("rssapi")
 
 
+class MiddlewareSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="RSS_MIDDLEWARE_",
+        env_file=".env",
+        extra="ignore",
+    )
+    max_title_length: int = 20
+
+
 class TwitterSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="RSS_TWITTER_",
@@ -25,6 +34,7 @@ class AppSettings(BaseSettings):  # type:ignore
     basic_auth_passwd: str = "example"
 
     twitter: TwitterSettings = TwitterSettings()
+    middleware: MiddlewareSettings = MiddlewareSettings()
 
     cloud_scraper_verify: bool = False
     # rss

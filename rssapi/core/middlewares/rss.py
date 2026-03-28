@@ -15,6 +15,7 @@ from starlette.responses import Response
 from rssapi.applications.rss.schemas.adapter import HttpUrlTypeAdapter
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
+from rssapi.core.settings import settings
 from rssapi.utils.md import markdown_parse
 
 app = FastAPI()
@@ -43,6 +44,7 @@ def add_middleware(app: FastAPI):
         FillImageFromAuthorAvatarMiddleware,
         FillFeedIconFromAuthorAvatarMiddleware,
         ExtractHashtagMiddleware,
+        LimitTitleLengthMiddleware,
     ]
     for middleware in middlewares:
         app.add_middleware(middleware)
@@ -251,6 +253,32 @@ class ExtractHashtagMiddleware(BaseHTTPMiddleware):
             headers.pop("content-length", None)
             if body.get("version") == "https://jsonfeed.org/version/1":
                 body["items"] = list(map(self.extract_hashtags, body["items"]))
+            return PrettyJSONFeedResponse(body, status_code=response.status_code, headers=headers)
+        return response
+
+
+class LimitTitleLengthMiddleware(BaseHTTPMiddleware):
+    def limit_title_length(self, payload: dict) -> dict:
+        feed = JSONFeedItem.model_validate(payload)
+        max_title_length = settings.middleware.max_title_length
+        if max_title_length > 0 and feed.title:
+            feed.title = feed.title[:max_title_length]
+        return feed.model_dump()
+
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response | PrettyJSONFeedResponse:
+        response = await call_next(request)
+        ct = response.headers.get("content-type")
+        if ct and ct.startswith("application/feed+json") and request.url.path.startswith("/api/rss/"):
+            response_body = b""
+            async for chunk in response.body_iterator:  # type: ignore
+                response_body += chunk
+            body = json.loads(response_body)
+            headers = dict(response.headers)
+            headers.pop("content-length", None)
+            if body.get("version") == "https://jsonfeed.org/version/1":
+                body["items"] = list(map(self.limit_title_length, body["items"]))
             return PrettyJSONFeedResponse(body, status_code=response.status_code, headers=headers)
         return response
 

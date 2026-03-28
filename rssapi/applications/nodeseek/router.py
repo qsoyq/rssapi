@@ -11,7 +11,7 @@ import requests
 from bs4 import BeautifulSoup as Soup
 from cachetools import TTLCache
 from dateparser import parse
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
 from htmlmin import minify
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed
@@ -149,38 +149,20 @@ async def cloudscraper_get(
 
 
 @router.get(
-    "/{category}", summary="Nodeseek 板块新贴 RSS 订阅", response_model=JSONFeed, response_class=PrettyJSONFeedResponse
-)
-async def category(
-    req: Request,
-    session: str = Query(None, description="Cookie.session, 登陆可见的版块需要"),
-    smac: str = Query(None, description="Cookie.smac, 登陆可见的版块需要"),
-    category: str = Path(..., description="版块名称, 如tech"),
-    cookie: str = Query("", description="完整 Cookie 字符串, 存在时无视 session 和 smac"),
-    sortby: str = Query("postTime", description="排序方式, postTime、replyTime"),
-    get_or_create: bool = Query(False, description="contentHTML缓存策略, 是否在未命中缓存后拉取内容"),
-):
-    """Nodeseek 分类帖子新鲜出炉
-
-    部分登陆可见的帖子，需要传递 smac 和 session 参数
-
-    在网页控制台中输出当前域的 cookie: console.log(document.cookie);
-    """
-    return await get_feeds_by_category(req, category, session, smac, cookie, sortby, get_or_create)
-
-
-@router.get(
-    "/{category}/{session}/{smac}",
+    "/{category}",
     summary="Nodeseek 板块新贴 RSS 订阅",
     response_model=JSONFeed,
     response_class=PrettyJSONFeedResponse,
 )
 async def category_with_session_smac(
     req: Request,
-    session: str = Path(..., description="Cookie.session, 登陆可见的版块需要"),
-    smac: str = Path(..., description="Cookie.smac, 登陆可见的版块需要"),
     category: str = Path(..., description="版块名称, 如tech"),
-    cookie: str = Query("", description="完整 Cookie 字符串, 存在时无视 session 和 smac"),
+    cookie: str = Query("", description="完整 Cookie 字符串, 也可通过请求头 X-Nodessek-Cookie 传递且优先级更高"),
+    x_nodessek_cookie: str = Header(
+        None,
+        description="完整 Cookie",
+        alias="X-Nodessek-Cookie",
+    ),
     sortby: str = Query("postTime", description="排序方式, postTime、replyTime"),
     get_or_create: bool = Query(False, description="contentHTML缓存策略, 是否在未命中缓存后拉取内容"),
 ):
@@ -190,10 +172,12 @@ async def category_with_session_smac(
 
     在网页控制台中输出当前域的 cookie: console.log(document.cookie);
     """
-    return await get_feeds_by_category(req, category, session, smac, cookie, sortby, get_or_create)
+    if x_nodessek_cookie:
+        cookie = x_nodessek_cookie
+    return await get_feeds_by_category(req, category, cookie, sortby, get_or_create)
 
 
-async def get_feeds_by_category(req, category, session, smac, cookie, sortby, get_or_create):
+async def get_feeds_by_category(req, category, cookie, sortby, get_or_create):
     items = []
     feed: dict[str, str | list[dict[str, object]]] = {
         "version": "https://jsonfeed.org/version/1",
@@ -207,7 +191,7 @@ async def get_feeds_by_category(req, category, session, smac, cookie, sortby, ge
     }
     token = NodeseekToolkit.GetOrCreate.set(get_or_create)
 
-    items = await get_feeds_by_cache(category, session=session, smac=smac, cookie=cookie, sortby=sortby)
+    items = await get_feeds_by_cache(category, cookie=cookie, sortby=sortby)
     feed["items"] = items
     NodeseekToolkit.GetOrCreate.reset(token)
     return feed
@@ -217,20 +201,13 @@ async def get_feeds_by_category(req, category, session, smac, cookie, sortby, ge
 async def get_feeds_by_cache(
     category: str,
     *,
-    session: str | None = None,
-    smac: str | None = None,
     cookie: str | None = "",
     sortby: str = "postTime",
 ):
     url = f"https://www.nodeseek.com/categories/{category}?sortBy={sortby}"
-    cookies = {
-        "colorscheme": "light",
-        "session": session,
-        "smac": smac,
-        "sortBy": sortby,
-    }
-    if cookie:
-        cookies = {k.strip(): v.strip() for k, v in (item.split("=") for item in cookie.strip().split(";"))}
+    cookies = (
+        {k.strip(): v.strip() for k, v in (item.split("=") for item in cookie.strip().split(";"))} if cookie else {}
+    )
 
     scraper = cloudscraper.create_scraper()
     resp = await cloudscraper_get(scraper, url, cookies)
