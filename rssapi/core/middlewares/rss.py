@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from typing import Awaitable, Callable, cast
+from typing import Any, Awaitable, Callable, TypedDict, cast
 
 import httpx
 from bs4 import BeautifulSoup as Soup
@@ -20,6 +20,12 @@ from rssapi.utils.md import markdown_parse
 
 app = FastAPI()
 logger = logging.getLogger(__file__)
+JSON_FEED_VERSION_1 = "https://jsonfeed.org/version/1"
+
+
+class JSONFeedResponseData(TypedDict):
+    body: dict[str, Any]
+    headers: dict[str, str]
 
 
 def is_valid_http_url(value: str | None) -> bool:
@@ -50,7 +56,74 @@ def add_middleware(app: FastAPI):
         app.add_middleware(middleware)
 
 
-class AddTwitterHTMLFeedMiddleware(BaseHTTPMiddleware):
+class BaseJSONFeedMiddleware(BaseHTTPMiddleware):
+    def should_process(self, request: Request, response: Response) -> bool:
+        content_type = response.headers.get("content-type")
+        return bool(content_type and content_type.startswith("application/feed+json"))
+
+    async def get_response_body_bytes(self, response: Response) -> bytes:
+        body_iterator = getattr(response, "body_iterator", None)
+        if body_iterator is not None:
+            response_body = b""
+            async for chunk in body_iterator:
+                response_body += chunk
+            return response_body
+        return response.body
+
+    async def get_jsonfeed_response(self, response: Response) -> JSONFeedResponseData:
+        response_body = await self.get_response_body_bytes(response)
+        body = json.loads(response_body)
+        headers = dict(response.headers)
+        headers.pop("content-length", None)
+        return {"body": body, "headers": headers}
+
+    def transform_body(self, body: dict[str, Any], request: Request) -> dict[str, Any]:
+        return body
+
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response | PrettyJSONFeedResponse:
+        response = await call_next(request)
+        if not self.should_process(request, response):
+            return response
+
+        response_data = await self.get_jsonfeed_response(response)
+        body = self.transform_body(response_data["body"], request)
+        return PrettyJSONFeedResponse(
+            body,
+            status_code=response.status_code,
+            headers=response_data["headers"],
+        )
+
+
+class BaseJSONFeedItemsMiddleware(BaseJSONFeedMiddleware):
+    def transform_item(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return payload
+
+    def transform_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [self.transform_item(item) for item in items]
+
+    def transform_body(self, body: dict[str, Any], request: Request) -> dict[str, Any]:
+        if body.get("version") != JSON_FEED_VERSION_1:
+            return body
+
+        items = body.get("items")
+        if isinstance(items, list):
+            body["items"] = self.transform_items(items)
+        return body
+
+
+class BaseJSONFeedItemModelMiddleware(BaseJSONFeedItemsMiddleware):
+    def transform_feed_item(self, feed: JSONFeedItem) -> JSONFeedItem:
+        return feed
+
+    def transform_item(self, payload: dict[str, Any]) -> dict[str, Any]:
+        feed = JSONFeedItem.model_validate(payload)
+        feed = self.transform_feed_item(feed)
+        return feed.model_dump()
+
+
+class AddTwitterHTMLFeedMiddleware(BaseJSONFeedItemModelMiddleware):
     @cached(FIFOCache(maxsize=1024))
     def make_html_by_url(self, url: str):
         output = []
@@ -66,47 +139,24 @@ class AddTwitterHTMLFeedMiddleware(BaseHTTPMiddleware):
             output.append(ele)
         return "\n".join(output)
 
-    def fixupx_match(self, item: dict):
-        feed = JSONFeedItem(**item)
-
+    def transform_feed_item(self, feed: JSONFeedItem) -> JSONFeedItem:
         if feed.content_html:
             p = r"(https://fixupx.com/.*?/status/\d+)"
             result = re.search(p, feed.content_html)
             if result:
                 contents = self.make_html_by_url(result.group(1))
                 feed.content_html = f"{feed.content_html}<br>{contents}"
-
-        return feed.model_dump()
-
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response | PrettyJSONFeedResponse:
-        response = await call_next(request)
-        path = request.url.path
-        ct = response.headers.get("content-type")
-        if ct and ct.startswith("application/feed+json") and path.startswith("/api/rss/"):
-            response_body = b""
-            async for chunk in response.body_iterator:  # type: ignore
-                response_body += chunk
-            body = json.loads(response_body)
-            headers = dict(response.headers)
-            headers.pop("content-length", None)
-            if body.get("version") == "https://jsonfeed.org/version/1":
-                body["items"] = list(map(self.fixupx_match, body["items"]))
-            return PrettyJSONFeedResponse(body, status_code=response.status_code, headers=headers)
-        return response
+        return feed
 
 
-class UpdateTelegraphHTMLFeedMiddleware(BaseHTTPMiddleware):
+class UpdateTelegraphHTMLFeedMiddleware(BaseJSONFeedItemModelMiddleware):
     @cached(FIFOCache(maxsize=1024))
     def make_html_by_url(self, url: str) -> str:
         res = httpx.get(url)
         doc = Soup(res.text, "lxml")
         return "<br/>".join([str(img) for img in doc.find_all("img")])
 
-    def fixupx_match(self, item: dict):
-        feed = JSONFeedItem(**item)
-
+    def transform_feed_item(self, feed: JSONFeedItem) -> JSONFeedItem:
         if feed.content_html:
             document = Soup(feed.content_html, "lxml")
             for tag in document.find_all("a"):
@@ -116,28 +166,10 @@ class UpdateTelegraphHTMLFeedMiddleware(BaseHTTPMiddleware):
                     extend_img_content = self.make_html_by_url(href)
                     feed.content_html = f"{feed.content_html}{extend_img_content}"
                     logger.debug(f"[UpdateTelegraphHTMLFeedMiddleware] Added img for {href}")
-        return feed.model_dump()
-
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response | PrettyJSONFeedResponse:
-        response = await call_next(request)
-        path = request.url.path
-        ct = response.headers.get("content-type")
-        if ct and ct.startswith("application/feed+json") and path.startswith("/api/rss/"):
-            response_body = b""
-            async for chunk in response.body_iterator:  # type: ignore
-                response_body += chunk
-            body = json.loads(response_body)
-            headers = dict(response.headers)
-            headers.pop("content-length", None)
-            if body.get("version") == "https://jsonfeed.org/version/1":
-                body["items"] = list(map(self.fixupx_match, body["items"]))
-            return PrettyJSONFeedResponse(body, status_code=response.status_code, headers=headers)
-        return response
+        return feed
 
 
-class BaseFeedFilterMiddleware(BaseHTTPMiddleware):
+class BaseFeedFilterMiddleware(BaseJSONFeedItemsMiddleware):
     BLOCK_TAG: list[str] = []
     BLOCK_CONTENT: list[str] = []
 
@@ -146,54 +178,47 @@ class BaseFeedFilterMiddleware(BaseHTTPMiddleware):
 
     MATCH_URL_PATTERN = r""
 
-    def filter_by_block(self, item: dict):
-        tags = item["tags"] or []
+    def should_process(self, request: Request, response: Response) -> bool:
+        return super().should_process(request, response) and (
+            re.match(self.__class__.MATCH_URL_PATTERN, request.url.path) is not None
+        )
+
+    def filter_by_block(self, item: dict[str, Any]) -> bool:
+        tags = item.get("tags") or []
         for tag in self.__class__.BLOCK_TAG:
             if tag in tags:
                 logger.debug(f"[{self.__class__.__name__}] skip by block tag matched: {tag}")
                 return False
 
         for block in self.__class__.BLOCK_CONTENT:
-            if item["content_html"] and block in item["content_html"]:
+            content_html = item.get("content_html")
+            if content_html and block in content_html:
                 logger.debug(f"[{self.__class__.__name__}] skip by block content matched: {block}")
                 return False
-            if item["content_text"] and block in item["content_text"]:
+            content_text = item.get("content_text")
+            if content_text and block in content_text:
                 logger.debug(f"[{self.__class__.__name__}] skip by block content matched: {block}")
                 return False
 
         for pattern in self.__class__.BLOCK_REGEX_CONTENT:
-            if item["content_html"] and re.search(pattern, item["content_html"]):
+            content_html = item.get("content_html")
+            if content_html and re.search(pattern, content_html):
                 logger.debug(f"[{self.__class__.__name__}] skip by regex content matched: {pattern}")
                 return False
-            if item["content_text"] and re.search(pattern, item["content_text"]):
+            content_text = item.get("content_text")
+            if content_text and re.search(pattern, content_text):
                 logger.debug(f"[{self.__class__.__name__}] skip by regex content matched: {pattern}")
                 return False
 
         for pattern in self.__class__.BLOCK_REGEX_TITLE:
-            if item["title"] and re.search(pattern, item["title"]):
+            title = item.get("title")
+            if title and re.search(pattern, title):
                 logger.debug(f"[{self.__class__.__name__}] skip by regex title matched: {pattern}")
                 return False
         return True
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response | PrettyJSONFeedResponse:
-        response = await call_next(request)
-        path = request.url.path
-        result = re.match(self.__class__.MATCH_URL_PATTERN, path)
-        ct = response.headers.get("content-type")
-        if ct and ct.startswith("application/feed+json") and result:
-            response_body = b""
-            async for chunk in response.body_iterator:  # type: ignore
-                response_body += chunk
-            body = json.loads(response_body)
-            headers = dict(response.headers)
-            headers.pop("content-length", None)
-            if body.get("version") == "https://jsonfeed.org/version/1":
-                body["items"] = list(filter(lambda x: self.filter_by_block(x), body["items"]))
-
-            return PrettyJSONFeedResponse(body, status_code=response.status_code, headers=headers)
-        return response
+    def transform_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [item for item in items if self.filter_by_block(item)]
 
 
 class TelegramFeedFilterMiddleware(BaseFeedFilterMiddleware):
@@ -223,13 +248,15 @@ class NGAFeedFilterMiddleware(BaseFeedFilterMiddleware):
     MATCH_URL_PATTERN = r"/api/rss/nga/"
 
 
-class ExtractHashtagMiddleware(BaseHTTPMiddleware):
+class ExtractHashtagMiddleware(BaseJSONFeedItemModelMiddleware):
     """从 content_text 或 content_html 中提取 hashtag 并写入 tags 字段"""
 
     HASHTAG_PATTERN = re.compile(r"#(\w+)", re.UNICODE)
 
-    def extract_hashtags(self, payload: dict) -> dict:
-        feed = JSONFeedItem.model_validate(payload)
+    def extract_hashtags(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.transform_item(payload)
+
+    def transform_feed_item(self, feed: JSONFeedItem) -> JSONFeedItem:
         text = feed.content_text or feed.content_html
         if text:
             found = self.HASHTAG_PATTERN.findall(text)
@@ -237,157 +264,61 @@ class ExtractHashtagMiddleware(BaseHTTPMiddleware):
                 existing = set(feed.tags or [])
                 existing.update(f"#{tag}" for tag in found)
                 feed.tags = sorted(existing)
-        return feed.model_dump()
-
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response | PrettyJSONFeedResponse:
-        response = await call_next(request)
-        ct = response.headers.get("content-type")
-        if ct and ct.startswith("application/feed+json") and request.url.path.startswith("/api/rss/"):
-            response_body = b""
-            async for chunk in response.body_iterator:  # type: ignore
-                response_body += chunk
-            body = json.loads(response_body)
-            headers = dict(response.headers)
-            headers.pop("content-length", None)
-            if body.get("version") == "https://jsonfeed.org/version/1":
-                body["items"] = list(map(self.extract_hashtags, body["items"]))
-            return PrettyJSONFeedResponse(body, status_code=response.status_code, headers=headers)
-        return response
+        return feed
 
 
-class LimitTitleLengthMiddleware(BaseHTTPMiddleware):
-    def limit_title_length(self, payload: dict) -> dict:
-        feed = JSONFeedItem.model_validate(payload)
+class LimitTitleLengthMiddleware(BaseJSONFeedItemModelMiddleware):
+    def transform_feed_item(self, feed: JSONFeedItem) -> JSONFeedItem:
         max_title_length = settings.middleware.max_title_length
         if max_title_length > 0 and feed.title:
             feed.title = feed.title[:max_title_length]
-        return feed.model_dump()
-
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response | PrettyJSONFeedResponse:
-        response = await call_next(request)
-        ct = response.headers.get("content-type")
-        if ct and ct.startswith("application/feed+json") and request.url.path.startswith("/api/rss/"):
-            response_body = b""
-            async for chunk in response.body_iterator:  # type: ignore
-                response_body += chunk
-            body = json.loads(response_body)
-            headers = dict(response.headers)
-            headers.pop("content-length", None)
-            if body.get("version") == "https://jsonfeed.org/version/1":
-                body["items"] = list(map(self.limit_title_length, body["items"]))
-            return PrettyJSONFeedResponse(body, status_code=response.status_code, headers=headers)
-        return response
+        return feed
 
 
-class FillImageFromAuthorAvatarMiddleware(BaseHTTPMiddleware):
+class FillImageFromAuthorAvatarMiddleware(BaseJSONFeedItemModelMiddleware):
     """当 item.image 不存在且 author.avatar 存在时，用 avatar 填充 image
 
     TODO: 支持将 base64 转成URL
     """
 
-    def fill_image(self, payload: dict):
-        feed = JSONFeedItem.model_validate(payload)
+    def transform_feed_item(self, feed: JSONFeedItem) -> JSONFeedItem:
         if not feed.image and feed.author and is_valid_http_url(feed.author.avatar):
             feed.image = feed.author.avatar
-        return feed.model_dump()
-
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response | PrettyJSONFeedResponse:
-        response = await call_next(request)
-        ct = response.headers.get("content-type")
-        if ct and ct.startswith("application/feed+json") and request.url.path.startswith("/api/rss/"):
-            response_body = b""
-            async for chunk in response.body_iterator:  # type: ignore
-                response_body += chunk
-            body = json.loads(response_body)
-            headers = dict(response.headers)
-            headers.pop("content-length", None)
-            if body.get("version") == "https://jsonfeed.org/version/1":
-                body["items"] = list(map(self.fill_image, body["items"]))
-            return PrettyJSONFeedResponse(body, status_code=response.status_code, headers=headers)
-        return response
+        return feed
 
 
-class FillFeedIconFromAuthorAvatarMiddleware(BaseHTTPMiddleware):
+class FillFeedIconFromAuthorAvatarMiddleware(BaseJSONFeedMiddleware):
     """当顶层 author.avatar 存在时，用 avatar 覆盖 icon/favicon"""
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response | PrettyJSONFeedResponse:
-        response = await call_next(request)
-        ct = response.headers.get("content-type")
-        if ct and ct.startswith("application/feed+json") and request.url.path.startswith("/api/rss/"):
-            response_body = b""
-            async for chunk in response.body_iterator:  # type: ignore
-                response_body += chunk
-            body = json.loads(response_body)
-            headers = dict(response.headers)
-            headers.pop("content-length", None)
-            author = body.get("author")
-            avatar = author.get("avatar") if isinstance(author, dict) else None
-            if avatar:
-                body["icon"] = avatar
-                body["favicon"] = avatar
-            return PrettyJSONFeedResponse(body, status_code=response.status_code, headers=headers)
-        return response
+    def transform_body(self, body: dict[str, Any], request: Request) -> dict[str, Any]:
+        author = body.get("author")
+        avatar = author.get("avatar") if isinstance(author, dict) else None
+        if avatar:
+            body["icon"] = avatar
+            body["favicon"] = avatar
+        return body
 
 
-class FillFeedAuthorFromItemsMiddleware(BaseHTTPMiddleware):
+class FillFeedAuthorFromItemsMiddleware(BaseJSONFeedMiddleware):
     """当 JSONFeed 顶层 author 不存在时，从 items 中取第一个有 author 的条目填充"""
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response | PrettyJSONFeedResponse:
-        response = await call_next(request)
-        ct = response.headers.get("content-type")
-        if ct and ct.startswith("application/feed+json") and request.url.path.startswith("/api/rss/"):
-            response_body = b""
-            async for chunk in response.body_iterator:  # type: ignore
-                response_body += chunk
-            body = json.loads(response_body)
-            headers = dict(response.headers)
-            headers.pop("content-length", None)
-            if body.get("version") == "https://jsonfeed.org/version/1" and not body.get("author"):
-                for item in body.get("items", []):
-                    if item.get("author"):
-                        body["author"] = item["author"]
-                        break
-            return PrettyJSONFeedResponse(body, status_code=response.status_code, headers=headers)
-        return response
+    def transform_body(self, body: dict[str, Any], request: Request) -> dict[str, Any]:
+        if body.get("version") == JSON_FEED_VERSION_1 and not body.get("author"):
+            for item in body.get("items", []):
+                if item.get("author"):
+                    body["author"] = item["author"]
+                    break
+        return body
 
 
-class MarkdownRenderMiddleware(BaseHTTPMiddleware):
+class MarkdownRenderMiddleware(BaseJSONFeedItemModelMiddleware):
     """尝试对 content_text 进行 markdown 渲染, 并写进 content_html"""
 
-    def markdown_render(self, payload: dict):
-        feed = JSONFeedItem.model_validate(payload)
+    def transform_feed_item(self, feed: JSONFeedItem) -> JSONFeedItem:
         if feed.content_text and not feed.content_html:
             try:
                 feed.content_html = markdown_parse(feed.content_text)
                 feed.content_text = None
             except Exception:
                 pass
-        return feed.model_dump()
-
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response | PrettyJSONFeedResponse:
-        response = await call_next(request)
-        path = request.url.path
-        ct = response.headers.get("content-type")
-        if ct and ct.startswith("application/feed+json") and path.startswith("/api/rss/"):
-            response_body = b""
-            async for chunk in response.body_iterator:  # type: ignore
-                response_body += chunk
-            body = json.loads(response_body)
-            headers = dict(response.headers)
-            headers.pop("content-length", None)
-            if body.get("version") == "https://jsonfeed.org/version/1":
-                body["items"] = list(map(self.markdown_render, body["items"]))
-            return PrettyJSONFeedResponse(body, status_code=response.status_code, headers=headers)
-        return response
+        return feed

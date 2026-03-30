@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -21,21 +21,21 @@ def _make_item(*, image: str | None = None, avatar: str | None = None) -> dict[s
 
 @pytest.fixture
 def middleware():
-    return FillImageFromAuthorAvatarMiddleware(app=None)
+    return FillImageFromAuthorAvatarMiddleware(app=cast(Any, None))
 
 
 class TestFillImageFromAuthorAvatarMiddleware:
     def test_fill_image_from_valid_http_avatar(self, middleware):
         item = _make_item(avatar="https://example.com/avatar.png")
 
-        result = middleware.fill_image(item)
+        result = middleware.transform_item(item)
 
         assert result["image"] == "https://example.com/avatar.png"
 
     def test_skip_invalid_data_avatar(self, middleware):
         item = _make_item(avatar="data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=")
 
-        result = middleware.fill_image(item)
+        result = middleware.transform_item(item)
 
         assert result["image"] is None
 
@@ -45,6 +45,6 @@ class TestFillImageFromAuthorAvatarMiddleware:
             avatar="https://example.com/avatar.png",
         )
 
-        result = middleware.fill_image(item)
+        result = middleware.transform_item(item)
 
         assert result["image"] == "https://example.com/original.png"

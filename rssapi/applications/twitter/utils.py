@@ -219,7 +219,7 @@ def content_html_from_tweet(tweet: Tweet) -> str:
         content_html += f'<p>🔁 RT by <a href="https://x.com/{rt_name}">@{rt_name}</a></p>'
 
     if tweet.text:
-        text = tweet.text
+        text = text_without_tco_links(tweet.text)
         text = markdown_parse(text)
         content_html += f"{text}"
 
