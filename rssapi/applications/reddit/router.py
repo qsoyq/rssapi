@@ -115,6 +115,24 @@ def _extract_preview_image(post: PostData) -> str | None:
     return first.source.url or None
 
 
+def _extract_video(post: PostData) -> dict[str, str] | None:
+    """Extract video URL from a Reddit-hosted or externally-embedded video post."""
+    for media in (post.secure_media, post.media):
+        if not media:
+            continue
+        reddit_video = media.get("reddit_video")
+        if reddit_video:
+            fallback = reddit_video.get("fallback_url") or reddit_video.get("dash_url") or ""
+            if fallback:
+                return {"type": "reddit", "url": fallback}
+        oembed = media.get("oembed")
+        if oembed and oembed.get("type") == "video":
+            html = oembed.get("html") or ""
+            if html:
+                return {"type": "oembed", "html": html}
+    return None
+
+
 def _build_feed_item(post: PostData) -> JSONFeedItem:
     post_id = post.id or ""
     title = post.title or ""
@@ -140,13 +158,22 @@ def _build_feed_item(post: PostData) -> JSONFeedItem:
     elif selftext:
         content_parts.append(f"<p>{escape(selftext).replace(chr(10), '<br>')}</p>")
 
+    video = _extract_video(post)
+    if video:
+        title = f"▶️ {title}"
+        if video["type"] == "reddit":
+            vid_url = escape(video["url"], quote=True)
+            content_parts.append(f'<video controls preload="metadata" src="{vid_url}"></video>')
+        elif video["type"] == "oembed":
+            content_parts.append(video["html"])
+
     if is_gallery:
         gallery_urls = _extract_gallery_images(post)
         if gallery_urls:
             title = f"📸 {title}"
             imgs = "".join(f'<img src="{escape(u, quote=True)}" />' for u in gallery_urls)
             content_parts.append(f"<div>{imgs}</div>")
-    else:
+    elif not video:
         preview_url = _extract_preview_image(post)
         if preview_url:
             content_parts.append(f'<p><img src="{escape(preview_url, quote=True)}" /></p>')

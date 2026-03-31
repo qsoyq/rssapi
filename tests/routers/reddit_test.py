@@ -5,6 +5,7 @@ from rssapi.applications.reddit.router import (
     _build_feed_item,
     _extract_gallery_images,
     _extract_preview_image,
+    _extract_video,
     _fetch_subreddit_feed,
 )
 from rssapi.applications.reddit.types import PostData, SubredditAbout, SubredditListing
@@ -129,6 +130,60 @@ class TestPreviewExtraction:
     def test_no_preview_returns_none(self):
         post = PostData()
         assert _extract_preview_image(post) is None
+
+
+# ── Video extraction ─────────────────────────────────────────────
+
+
+class TestVideoExtraction:
+    def test_reddit_hosted_video(self):
+        post = PostData(
+            is_video=True,
+            secure_media={
+                "reddit_video": {
+                    "fallback_url": "https://v.redd.it/abc123/DASH_720.mp4",
+                    "height": 720,
+                    "width": 1280,
+                }
+            },
+        )
+        result = _extract_video(post)
+        assert result is not None
+        assert result["type"] == "reddit"
+        assert result["url"] == "https://v.redd.it/abc123/DASH_720.mp4"
+
+    def test_oembed_video(self):
+        post = PostData(
+            media={
+                "oembed": {
+                    "type": "video",
+                    "html": '<iframe src="https://www.youtube.com/embed/xyz"></iframe>',
+                }
+            },
+        )
+        result = _extract_video(post)
+        assert result is not None
+        assert result["type"] == "oembed"
+        assert "youtube.com" in result["html"]
+
+    def test_no_video(self):
+        post = PostData(title="just text")
+        assert _extract_video(post) is None
+
+    def test_video_title_prefix(self):
+        post = PostData(
+            id="v1",
+            title="Cool video",
+            is_video=True,
+            permalink="/r/test/comments/v1/cool_video/",
+            created_utc=1700000000.0,
+            secure_media={"reddit_video": {"fallback_url": "https://v.redd.it/abc/DASH_720.mp4"}},
+        )
+        item = _build_feed_item(post)
+        assert item.title is not None
+        assert item.title.startswith("▶️")
+        assert item.content_html is not None
+        assert "<video" in item.content_html
 
 
 # ── Feed item building ──────────────────────────────────────────
