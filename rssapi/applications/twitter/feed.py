@@ -28,12 +28,12 @@ def _avatar_from_tweet(tweet: Tweet) -> str | None:
     return photos[0] if photos else tweet.author.profile_image_url
 
 
-def _title_from_tweet(tweet: Tweet, max_length: int = 20) -> str:
+def _title_from_tweet(tweet: Tweet) -> str:
     title = text_without_http_links(tweet.text)
     title = title_from_text_by_delimiter_priority(title)
     media_prefix = title_emoji_prefix_from_tweet(tweet)
     title = " ".join(part for part in [media_prefix, title] if part)
-    return title[:max_length]
+    return title
 
 
 def _tweets_to_jsonfeed_items(tweets: list[Tweet]) -> list[JSONFeedItem]:

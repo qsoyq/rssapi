@@ -16,7 +16,7 @@ class MiddlewareSettings(BaseSettings):
         env_file=".env",
         extra="ignore",
     )
-    max_title_length: int = 20
+    max_title_length: int = 50
 
 
 class TwitterSettings(BaseSettings):

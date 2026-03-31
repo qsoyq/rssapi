@@ -10,9 +10,8 @@ from fastapi.concurrency import run_in_threadpool
 from rdt_cli.auth import Credential
 from rdt_cli.client import RedditClient
 from rdt_cli.exceptions import RedditApiError
-from rdt_cli.models import SubredditInfo
-from rdt_cli.parser import parse_subreddit_info
 
+from rssapi.applications.reddit.types import PostData, SubredditAbout, SubredditListing
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.core.circuit_breaker import circuit_breaker
 from rssapi.core.responses import PrettyJSONFeedResponse
@@ -49,7 +48,7 @@ async def posts(
     feed: dict[str, Any] = {
         "version": "https://jsonfeed.org/version/1",
         "title": about.display_name_prefixed or f"r/{subreddit}",
-        "description": about.public_description or about.description or "",
+        "description": about.public_description or about.description or about.title or "",
         "home_page_url": f"https://www.reddit.com/r/{subreddit}/",
         "feed_url": str(req.url),
         "icon": "https://www.reddit.com/favicon.ico",
@@ -61,13 +60,13 @@ async def posts(
 
 def _fetch_subreddit_feed(
     subreddit: str, max_posts: int, cookies: str | None
-) -> tuple[SubredditInfo, list[JSONFeedItem]]:
+) -> tuple[SubredditAbout, list[JSONFeedItem]]:
     credential = _build_credential(cookies)
     with RedditClient(credential) as client:
-        about = parse_subreddit_info(client.get_subreddit_about(subreddit))
-        raw_listing = client.get_subreddit(subreddit, limit=max_posts)
-    children = raw_listing.get("data", {}).get("children", [])
-    items = [_build_feed_item(child.get("data", child)) for child in children]
+        about = SubredditAbout.model_validate(client.get_subreddit_about(subreddit))
+        listing = SubredditListing.model_validate(client.get_subreddit(subreddit, limit=max_posts))
+    children = (listing.data.children or []) if listing.data else []
+    items = [_build_feed_item(child.data) for child in children if child.data]
     return about, items
 
 
@@ -83,51 +82,53 @@ def _build_credential(cookies: str | None) -> Credential | None:
     return Credential(cookies=parsed_cookies, source="rssapi")
 
 
-def _extract_gallery_images(data: dict[str, Any]) -> list[str]:
+def _extract_gallery_images(post: PostData) -> list[str]:
     """Extract image URLs from a gallery post's media_metadata, ordered by gallery_data."""
-    metadata = data.get("media_metadata") or {}
-    gallery_items = (data.get("gallery_data") or {}).get("items") or []
+    metadata = post.media_metadata or {}
+    gallery_items = (post.gallery_data.items if post.gallery_data else None) or []
 
-    ordered_ids = [item["media_id"] for item in gallery_items if "media_id" in item]
+    ordered_ids = [item.media_id for item in gallery_items if item.media_id]
     if not ordered_ids:
         ordered_ids = list(metadata.keys())
 
     urls: list[str] = []
     for media_id in ordered_ids:
-        entry = metadata.get(media_id, {})
-        if entry.get("status") != "valid":
+        entry = metadata.get(media_id)
+        if not entry or entry.status != "valid":
             continue
-        source = entry.get("s", {})
-        url = source.get("u") or source.get("gif") or ""
+        source = entry.s
+        if not source:
+            continue
+        url = source.u or source.gif or ""
         if url:
             urls.append(url)
     return urls
 
 
-def _extract_preview_image(data: dict[str, Any]) -> str | None:
+def _extract_preview_image(post: PostData) -> str | None:
     """Extract the best-quality preview image URL from a post."""
-    preview = data.get("preview") or {}
-    images = preview.get("images") or []
-    if not images:
+    if not post.preview or not post.preview.images:
         return None
-    source = images[0].get("source", {})
-    return source.get("url") or None
+    first = post.preview.images[0]
+    if not first.source:
+        return None
+    return first.source.url or None
 
 
-def _build_feed_item(data: dict[str, Any]) -> JSONFeedItem:
-    post_id = str(data.get("id", ""))
-    title = str(data.get("title", ""))
-    permalink = str(data.get("permalink", ""))
-    url = str(data.get("url", ""))
-    selftext_html = data.get("selftext_html") or ""
-    selftext = str(data.get("selftext", ""))
-    is_self = bool(data.get("is_self", True))
-    is_gallery = bool(data.get("is_gallery", False))
-    score = int(data.get("score", 0) or 0)
-    num_comments = int(data.get("num_comments", 0) or 0)
-    author = str(data.get("author", ""))
-    subreddit = str(data.get("subreddit", ""))
-    created_utc = float(data.get("created_utc", 0) or 0)
+def _build_feed_item(post: PostData) -> JSONFeedItem:
+    post_id = post.id or ""
+    title = post.title or ""
+    permalink = post.permalink or ""
+    url = post.url or ""
+    selftext_html = post.selftext_html or ""
+    selftext = post.selftext or ""
+    is_self = post.is_self if post.is_self is not None else True
+    is_gallery = post.is_gallery or False
+    score = post.score or 0
+    num_comments = post.num_comments or 0
+    author = post.author or ""
+    subreddit = post.subreddit or ""
+    created_utc = post.created_utc or 0.0
 
     permalink_url = f"https://www.reddit.com{permalink}" if permalink else None
     target_url = url or permalink_url
@@ -140,12 +141,13 @@ def _build_feed_item(data: dict[str, Any]) -> JSONFeedItem:
         content_parts.append(f"<p>{escape(selftext).replace(chr(10), '<br>')}</p>")
 
     if is_gallery:
-        gallery_urls = _extract_gallery_images(data)
+        gallery_urls = _extract_gallery_images(post)
         if gallery_urls:
+            title = f"📸 {title}"
             imgs = "".join(f'<img src="{escape(u, quote=True)}" />' for u in gallery_urls)
             content_parts.append(f"<div>{imgs}</div>")
     else:
-        preview_url = _extract_preview_image(data)
+        preview_url = _extract_preview_image(post)
         if preview_url:
             content_parts.append(f'<p><img src="{escape(preview_url, quote=True)}" /></p>')
 
