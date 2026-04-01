@@ -1,14 +1,14 @@
 import pytest
 from rdt_cli.client import RedditClient
 
-from rssapi.applications.reddit.router import (
+from rssapi.applications.reddit.types import PostData, SubredditAbout, SubredditListing
+from rssapi.applications.reddit.utils import (
     _build_feed_item,
     _extract_gallery_images,
     _extract_preview_image,
     _extract_video,
-    _fetch_subreddit_feed,
+    fetch_subreddit_feed,
 )
-from rssapi.applications.reddit.types import PostData, SubredditAbout, SubredditListing
 
 
 @pytest.fixture(scope="module")
@@ -216,12 +216,12 @@ class TestBuildFeedItem:
         pytest.skip("No gallery post in current listing")
 
 
-# ── _fetch_subreddit_feed integration ───────────────────────────
+# ── fetch_subreddit_feed integration ───────────────────────────
 
 
 class TestFetchSubredditFeed:
     def test_returns_about_and_items(self):
-        about, items = _fetch_subreddit_feed("aiyu", 3, None)
+        about, items = fetch_subreddit_feed("aiyu", 3, None)
         assert isinstance(about, SubredditAbout)
         assert about.display_name == "aiyu"
         assert len(items) <= 3
