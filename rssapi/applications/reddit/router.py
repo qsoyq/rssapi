@@ -16,6 +16,7 @@ from rssapi.applications.reddit.types import PostData, SubredditAbout, Subreddit
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.core.circuit_breaker import circuit_breaker
 from rssapi.core.responses import PrettyJSONFeedResponse
+from rssapi.utils.cache import RandomTTLCache, cached
 
 router = APIRouter(tags=["RSS"], prefix="/rss/reddit")
 
@@ -59,6 +60,7 @@ async def posts(
     return feed
 
 
+@cached(RandomTTLCache(4096, 600))
 def _fetch_subreddit_feed(
     subreddit: str, max_posts: int, cookies: str | None
 ) -> tuple[SubredditAbout, list[JSONFeedItem]]:
