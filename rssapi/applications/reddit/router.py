@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from html import escape
 from http.cookies import SimpleCookie
 from typing import Any
+from urllib.parse import urljoin
 
 from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
 from fastapi.concurrency import run_in_threadpool
@@ -134,10 +135,11 @@ def _extract_video(post: PostData) -> dict[str, str] | None:
 
 
 def _build_feed_item(post: PostData) -> JSONFeedItem:
+    reddit_base_url = "https://www.reddit.com"
     post_id = post.id or ""
     title = post.title or ""
     permalink = post.permalink or ""
-    url = post.url or ""
+    url = post.url_overridden_by_dest or post.url or ""
     selftext_html = post.selftext_html or ""
     selftext = post.selftext or ""
     is_self = post.is_self if post.is_self is not None else True
@@ -148,8 +150,8 @@ def _build_feed_item(post: PostData) -> JSONFeedItem:
     subreddit = post.subreddit or ""
     created_utc = post.created_utc or 0.0
 
-    permalink_url = f"https://www.reddit.com{permalink}" if permalink else None
-    target_url = url or permalink_url
+    permalink_url = urljoin(reddit_base_url, permalink) if permalink else None
+    target_url = urljoin(reddit_base_url, url) if url else permalink_url
 
     content_parts: list[str] = []
 
