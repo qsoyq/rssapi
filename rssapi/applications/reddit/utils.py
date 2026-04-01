@@ -144,6 +144,9 @@ def _build_feed_item(post: PostData) -> JSONFeedItem:
         if video["type"] == "reddit":
             vid_url = escape(video["url"], quote=True)
             content_parts.append(f'<video controls preload="metadata" src="{vid_url}"></video>')
+            if permalink_url:
+                safe_link = escape(permalink_url, quote=True)
+                content_parts.append(f'<p><a href="{safe_link}">🔊 前往 Reddit 播放带声音的视频</a></p>')
         elif video["type"] == "oembed":
             content_parts.append(video["html"])
 
