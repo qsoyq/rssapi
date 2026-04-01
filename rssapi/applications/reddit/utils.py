@@ -101,9 +101,15 @@ def _extract_video(post: PostData) -> dict[str, str] | None:
             continue
         reddit_video = media.get("reddit_video")
         if reddit_video:
-            fallback = reddit_video.get("fallback_url") or reddit_video.get("dash_url") or ""
-            if fallback:
-                return {"type": "reddit", "url": fallback}
+            fallback = reddit_video.get("fallback_url") or ""
+            dash = reddit_video.get("dash_url") or ""
+            if fallback or dash:
+                result: dict[str, str] = {"type": "reddit"}
+                if fallback:
+                    result["url"] = fallback
+                if dash:
+                    result["dash_url"] = dash
+                return result
         oembed = media.get("oembed")
         if oembed and oembed.get("type") == "video":
             html = oembed.get("html") or ""
@@ -140,14 +146,37 @@ def _build_feed_item(post: PostData) -> JSONFeedItem:
 
     video = _extract_video(post)
     if video:
-        title = f"▶️ {title}"
         if video["type"] == "reddit":
-            vid_url = escape(video["url"], quote=True)
-            content_parts.append(f'<video controls preload="metadata" src="{vid_url}"></video>')
+            dash_url = video.get("dash_url")
+            fallback_url = video.get("url", "")
+            vid_id = f"reddit-video-{post_id}"
+            safe_fallback = escape(fallback_url, quote=True) if fallback_url else ""
+            title = f"🔊 {title}" if dash_url else f"▶️ {title}"
+            # TODO: dash_url 格式的 mpd 需要用 JS 播放，目前大多数 rss 客户端不支持 js 渲染 script 标签, 需要一个代理 API 从 mpd 返回视频流
+            if dash_url:
+                js_dash = dash_url.replace("\\", "\\\\").replace("'", "\\'")
+                src_attr = f' src="{safe_fallback}"' if safe_fallback else ""
+                content_parts.append(
+                    f'<video id="{vid_id}" controls preload="metadata"{src_attr}></video>'
+                    f"<script>"
+                    f"(function(){{"
+                    f"function i(){{var v=document.getElementById('{vid_id}');"
+                    f"var p=dashjs.MediaPlayer().create();"
+                    f"p.initialize(v,'{js_dash}',false);}}"
+                    f"if(typeof dashjs!=='undefined'){{i()}}else{{"
+                    f"var s=document.createElement('script');"
+                    f"s.src='https://cdn.dashjs.org/latest/dash.all.min.js';"
+                    f"s.onload=i;document.head.appendChild(s);}}"
+                    f"}})();"
+                    f"</script>"
+                )
+            else:
+                content_parts.append(f'<video controls preload="metadata" src="{safe_fallback}"></video>')
             if permalink_url:
                 safe_link = escape(permalink_url, quote=True)
                 content_parts.append(f'<p><a href="{safe_link}">🔊 前往 Reddit 播放带声音的视频</a></p>')
         elif video["type"] == "oembed":
+            title = f"▶️ {title}"
             content_parts.append(video["html"])
 
     if is_gallery:
