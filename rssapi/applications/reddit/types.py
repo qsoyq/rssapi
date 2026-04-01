@@ -187,11 +187,19 @@ class PreviewImageSource(BaseModel):
     height: int | None = None  # 高度 (px)
 
 
+class PreviewVariant(BaseModel):
+    """预览图的变体 (GIF/MP4 等)"""
+
+    source: PreviewImageSource | None = None  # 原始尺寸
+    resolutions: list[PreviewImageSource] | None = None  # 各分辨率版本
+
+
 class PreviewImage(BaseModel):
     """预览图 (含原图和多尺寸缩略图)"""
 
     source: PreviewImageSource | None = None  # 原始尺寸
     resolutions: list[PreviewImageSource] | None = None  # 各分辨率版本
+    variants: dict[str, PreviewVariant] | None = None  # 变体: gif, mp4 等
     id: str | None = None  # 预览图 ID
 
 

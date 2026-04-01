@@ -118,6 +118,31 @@ def _extract_preview_image(post: PostData) -> str | None:
     return first.source.url or None
 
 
+def _extract_gif(post: PostData) -> dict[str, str] | None:
+    """Extract GIF URL from preview variants or media metadata.
+
+    Returns {"type": "video", "url": ...} for mp4 variants,
+    or {"type": "image", "url": ...} for animated GIF URLs.
+    """
+    if post.preview and post.preview.images:
+        variants = post.preview.images[0].variants or {}
+        mp4 = variants.get("mp4")
+        if mp4 and mp4.source and mp4.source.url:
+            return {"type": "video", "url": mp4.source.url}
+        gif = variants.get("gif")
+        if gif and gif.source and gif.source.url:
+            return {"type": "image", "url": gif.source.url}
+
+    metadata = post.media_metadata or {}
+    for entry in metadata.values():
+        if not entry or entry.status != "valid":
+            continue
+        source = entry.s
+        if source and source.gif:
+            return {"type": "image", "url": source.gif}
+    return None
+
+
 def _extract_video(post: PostData) -> dict[str, str] | None:
     """Extract video URL from a Reddit-hosted or externally-embedded video post."""
     for media in (post.secure_media, post.media):
@@ -178,9 +203,19 @@ def _build_feed_item(post: PostData) -> JSONFeedItem:
             imgs = "".join(f'<img src="{escape(u, quote=True)}" />' for u in gallery_urls)
             content_parts.append(f"<div>{imgs}</div>")
     elif not video:
-        preview_url = _extract_preview_image(post)
-        if preview_url:
-            content_parts.append(f'<p><img src="{escape(preview_url, quote=True)}" /></p>')
+        gif = _extract_gif(post)
+        if gif:
+            title = f"🎞️ {title}"
+            safe_url = escape(gif["url"], quote=True)
+            if gif["type"] == "video":
+                content_parts.append(f'<video controls autoplay loop muted src="{safe_url}"></video>')
+            else:
+                content_parts.append(f'<p><img src="{safe_url}" /></p>')
+        else:
+            preview_url = _extract_preview_image(post)
+            if preview_url:
+                title = f"🖼️ {title}"
+                content_parts.append(f'<p><img src="{escape(preview_url, quote=True)}" /></p>')
 
     if not is_self and target_url:
         safe_url = escape(target_url, quote=True)
