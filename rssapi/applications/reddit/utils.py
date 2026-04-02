@@ -1,13 +1,14 @@
 from datetime import datetime, timezone
 from html import escape
 from http.cookies import SimpleCookie
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 from rdt_cli.auth import Credential
 from rdt_cli.client import RedditClient
 
 from rssapi.applications.reddit.types import PostData, SubredditAbout, SubredditListing
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
+from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache, cached
 
 
@@ -105,10 +106,13 @@ def _extract_video(post: PostData) -> dict[str, str] | None:
             dash = reddit_video.get("dash_url") or ""
             if fallback or dash:
                 result: dict[str, str] = {"type": "reddit"}
-                if fallback:
-                    result["url"] = fallback
                 if dash:
-                    result["dash_url"] = dash
+                    proxy_host = settings.reddit.dash_proxy_host
+                    proxy_url = f"{proxy_host}/api/convert/dash/mp4/stream?dash_url={quote(dash, safe='')}"
+                    result["url"] = proxy_url
+                    result["has_audio"] = "true"
+                elif fallback:
+                    result["url"] = fallback
                 return result
         oembed = media.get("oembed")
         if oembed and oembed.get("type") == "video":
@@ -147,34 +151,11 @@ def _build_feed_item(post: PostData) -> JSONFeedItem:
     video = _extract_video(post)
     if video:
         if video["type"] == "reddit":
-            dash_url = video.get("dash_url")
-            fallback_url = video.get("url", "")
-            vid_id = f"reddit-video-{post_id}"
-            safe_fallback = escape(fallback_url, quote=True) if fallback_url else ""
-            title = f"🔊 {title}" if dash_url else f"▶️ {title}"
-            # TODO: dash_url 格式的 mpd 需要用 JS 播放，目前大多数 rss 客户端不支持 js 渲染 script 标签, 需要一个代理 API 从 mpd 返回视频流
-            if dash_url:
-                js_dash = dash_url.replace("\\", "\\\\").replace("'", "\\'")
-                src_attr = f' src="{safe_fallback}"' if safe_fallback else ""
-                content_parts.append(
-                    f'<video id="{vid_id}" controls preload="metadata"{src_attr}></video>'
-                    f"<script>"
-                    f"(function(){{"
-                    f"function i(){{var v=document.getElementById('{vid_id}');"
-                    f"var p=dashjs.MediaPlayer().create();"
-                    f"p.initialize(v,'{js_dash}',false);}}"
-                    f"if(typeof dashjs!=='undefined'){{i()}}else{{"
-                    f"var s=document.createElement('script');"
-                    f"s.src='https://cdn.dashjs.org/latest/dash.all.min.js';"
-                    f"s.onload=i;document.head.appendChild(s);}}"
-                    f"}})();"
-                    f"</script>"
-                )
-            else:
-                content_parts.append(f'<video controls preload="metadata" src="{safe_fallback}"></video>')
-            if permalink_url:
-                safe_link = escape(permalink_url, quote=True)
-                content_parts.append(f'<p><a href="{safe_link}">🔊 前往 Reddit 播放带声音的视频</a></p>')
+            video_url = video.get("url", "")
+            has_audio = video.get("has_audio")
+            safe_url = escape(video_url, quote=True) if video_url else ""
+            title = f"🔊 {title}" if has_audio else f"▶️ {title}"
+            content_parts.append(f'<video controls preload="metadata" src="{safe_url}"></video>')
         elif video["type"] == "oembed":
             title = f"▶️ {title}"
             content_parts.append(video["html"])

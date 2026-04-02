@@ -28,12 +28,22 @@ class TwitterSettings(BaseSettings):
     fetch_concurrency: int = 5
 
 
+class RedditSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="RSS_REDDIT_",
+        env_file=".env",
+        extra="ignore",
+    )
+    dash_proxy_host: str = "https://p.19940731.xyz"
+
+
 class AppSettings(BaseSettings):  # type:ignore
     api_prefix: str = "/api"
     basic_auth_user: str = "root"
     basic_auth_passwd: str = "example"
 
     twitter: TwitterSettings = TwitterSettings()
+    reddit: RedditSettings = RedditSettings()
     middleware: MiddlewareSettings = MiddlewareSettings()
 
     cloud_scraper_verify: bool = False
