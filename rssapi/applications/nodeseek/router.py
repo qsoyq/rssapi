@@ -1,5 +1,4 @@
 import asyncio
-import contextvars
 import gzip
 import logging
 import ssl
@@ -31,7 +30,6 @@ class NodeseekToolkit:
     ONCE_FETCH_ARTICLE_CACHE_MAX = 50
     ArticlePostCache: MutableMapping[str, bytes] = TTLCache(4096, ttl=86400 * 3)
     LoginRequired: MutableMapping[str, bool] = TTLCache(4096, ttl=86400 * 3)
-    GetOrCreate = contextvars.ContextVar("GetOrCreate", default=False)
 
     @staticmethod
     def html_compresse(html_content: str) -> bytes:
@@ -43,7 +41,11 @@ class NodeseekToolkit:
 
     @staticmethod
     async def get_or_create_article_post_content(
-        url: str, scraper: cloudscraper.CloudScraper, cookies: dict
+        url: str,
+        scraper: cloudscraper.CloudScraper | None,
+        cookies: dict[str, str],
+        *,
+        get_or_create: bool,
     ) -> str | None:
         # 跳过要求登陆的 URL
         async with NodeseekToolkit.LOCK:
@@ -59,10 +61,12 @@ class NodeseekToolkit:
                 logger.debug(f"[Nodessk RSS] read from cache for {url}")
                 return NodeseekToolkit.html_decompress(content_html)
 
-        if not NodeseekToolkit.GetOrCreate.get():
+        if not get_or_create:
             return None
 
         # 请求网页，限制并发量，同时记录要求登陆的 URL
+        if scraper is None:
+            scraper = cloudscraper.create_scraper()
         try:
             async with NodeseekToolkit.Semaphore:
                 content_html = await NodeseekToolkit.fetch_post_content_by_url(url, scraper, cookies)
@@ -148,6 +152,12 @@ async def cloudscraper_get(
     return await asyncio.to_thread(scraper.get, url, cookies=cookies, verify=False)
 
 
+def parse_cookie_string(cookie: str | None) -> dict[str, str]:
+    if not cookie:
+        return {}
+    return {k.strip(): v.strip() for k, v in (item.split("=") for item in cookie.strip().split(";"))}
+
+
 @router.get(
     "/{category}",
     summary="Nodeseek 板块新贴 RSS 订阅",
@@ -164,7 +174,7 @@ async def category_with_session_smac(
         alias="X-Nodessek-Cookie",
     ),
     sortby: str = Query("postTime", description="排序方式, postTime、replyTime"),
-    get_or_create: bool = Query(False, description="contentHTML缓存策略, 是否在未命中缓存后拉取内容"),
+    get_or_create: bool = Query(False, description="正文缓存未命中时，是否拉取正文并写入缓存"),
 ):
     """Nodeseek 分类帖子新鲜出炉
 
@@ -189,41 +199,33 @@ async def get_feeds_by_category(req, category, cookie, sortby, get_or_create):
         "favicon": "https://www.nodeseek.com/static/image/favicon/android-chrome-512x512.png",
         "items": [],
     }
-    token = NodeseekToolkit.GetOrCreate.set(get_or_create)
-
-    items = await get_feeds_by_cache(category, cookie=cookie, sortby=sortby)
-    feed["items"] = items
-    NodeseekToolkit.GetOrCreate.reset(token)
+    cached_items = await get_feeds_by_cache(category, cookie=cookie, sortby=sortby)
+    # 避免把当前请求补充的正文回写到分类页缓存对象里。
+    items = [dict(item) for item in cached_items]
+    cookies = parse_cookie_string(cookie)
+    feed["items"] = await populate_article_content(items, cookies=cookies, get_or_create=get_or_create)
     return feed
 
 
-@cached(RandomTTLCache(4096, 600))
-async def get_feeds_by_cache(
-    category: str,
+async def populate_article_content(
+    items: list[dict[str, object]],
     *,
-    cookie: str | None = "",
-    sortby: str = "postTime",
-):
-    url = f"https://www.nodeseek.com/categories/{category}?sortBy={sortby}"
-    cookies = (
-        {k.strip(): v.strip() for k, v in (item.split("=") for item in cookie.strip().split(";"))} if cookie else {}
-    )
-
-    scraper = cloudscraper.create_scraper()
-    resp = await cloudscraper_get(scraper, url, cookies)
-    if not resp.ok:
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
-
-    items = NodeseekToolkit.make_feeds_by_document(resp.text)
-    count = 0
-    for item in items:
-        count += 1
+    cookies: dict[str, str],
+    get_or_create: bool,
+) -> list[dict[str, object]]:
+    scraper: cloudscraper.CloudScraper | None = cloudscraper.create_scraper() if get_or_create else None
+    for count, item in enumerate(items, start=1):
         if count > NodeseekToolkit.ONCE_FETCH_ARTICLE_CACHE_MAX:
             break
         url = str(item["url"])
 
         try:
-            content_html = await NodeseekToolkit.get_or_create_article_post_content(url, scraper, cookies)
+            content_html = await NodeseekToolkit.get_or_create_article_post_content(
+                url,
+                scraper,
+                cookies,
+                get_or_create=get_or_create,
+            )
         except HTTPException as e:
             if e.status_code == 429:
                 logger.warning("[Nodeseek RSS] Request has reached the limit.")
@@ -237,3 +239,21 @@ async def get_feeds_by_cache(
             item["content_html"] = content_html
             item["content_text"] = None
     return items
+
+
+@cached(RandomTTLCache(4096, 600))
+async def get_feeds_by_cache(
+    category: str,
+    *,
+    cookie: str | None = "",
+    sortby: str = "postTime",
+):
+    url = f"https://www.nodeseek.com/categories/{category}?sortBy={sortby}"
+    cookies = parse_cookie_string(cookie)
+
+    scraper = cloudscraper.create_scraper()
+    resp = await cloudscraper_get(scraper, url, cookies)
+    if not resp.ok:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+    return NodeseekToolkit.make_feeds_by_document(resp.text)
