@@ -108,7 +108,7 @@ def _extract_video(post: PostData) -> dict[str, str] | None:
                 result: dict[str, str] = {"type": "reddit"}
                 if dash:
                     proxy_host = settings.reddit.dash_proxy_host
-                    proxy_url = f"{proxy_host}/api/convert/dash/mp4/stream?dash_url={quote(dash, safe='')}"
+                    proxy_url = f"{proxy_host}/api/convert/dash/mp4?dash_url={quote(dash, safe='')}"
                     result["url"] = proxy_url
                     result["has_audio"] = "true"
                 elif fallback:
