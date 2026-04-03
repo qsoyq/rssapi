@@ -28,7 +28,15 @@ async def posts(
     cookies: str | None = Query(None, description="Reddit 用户 cookie"),
     x_reddit_cookie: str | None = Header(None, description="Reddit 用户 cookie", alias="X-Reddit-Cookie"),
 ):
-    """Reddit Subreddit Posts RSS"""
+    """Reddit Subreddit Posts RSS
+
+    多媒体元素前缀 emoji:
+    - 🔊 有声视频 (Reddit 托管, 含音轨, 通过代理 API 将 DASH video 转换为 MP4 video)
+    - ▶️ 视频 (Reddit 托管无音轨 / oembed 外部嵌入)
+    - 📸 图片画廊
+    - 🎞️ GIF 动图
+    - 🖼️ 静态预览图
+    """
     if cookies is None and x_reddit_cookie is not None:
         cookies = x_reddit_cookie
 
