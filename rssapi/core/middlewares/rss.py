@@ -17,6 +17,8 @@ from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
 from rssapi.core.settings import settings
 from rssapi.utils.md import markdown_parse
+from rssapi.utils.media_title import MEDIA_TITLE_RULES as DEFAULT_MEDIA_TITLE_RULES
+from rssapi.utils.media_title import MediaTitleDetector
 
 app = FastAPI()
 logger = logging.getLogger(__file__)
@@ -50,6 +52,7 @@ def add_middleware(app: FastAPI):
         FillImageFromAuthorAvatarMiddleware,
         FillFeedIconFromAuthorAvatarMiddleware,
         ExtractHashtagMiddleware,
+        AddMediaTitlePrefixMiddleware,
         LimitTitleLengthMiddleware,
     ]
     for middleware in middlewares:
@@ -264,6 +267,27 @@ class ExtractHashtagMiddleware(BaseJSONFeedItemModelMiddleware):
                 existing = set(feed.tags or [])
                 existing.update(f"#{tag}" for tag in found)
                 feed.tags = sorted(existing)
+        return feed
+
+
+class AddMediaTitlePrefixMiddleware(BaseJSONFeedItemModelMiddleware):
+    MEDIA_TITLE_RULES: dict[str, MediaTitleDetector] = DEFAULT_MEDIA_TITLE_RULES
+
+    def transform_feed_item(self, feed: JSONFeedItem) -> JSONFeedItem:
+        if not feed.title or not feed.content_html:
+            return feed
+
+        title = feed.title
+        document = Soup(feed.content_html, "lxml")
+
+        for prefix, detector in self.MEDIA_TITLE_RULES.items():
+            if prefix in title:
+                continue
+
+            if detector(document):
+                title = f"{prefix} {title}"
+
+        feed.title = title
         return feed
 
 
