@@ -30,7 +30,8 @@ def has_video(document: Soup) -> bool:
 
 def has_gallery(document: Soup) -> bool:
     images = [cast(Tag, img) for img in document.find_all("img")]
-    non_gif_images = [img for img in images if not is_gif_image(img)]
+    content_images = [img for img in images if not is_nga_smile_image(img)]
+    non_gif_images = [img for img in content_images if not is_gif_image(img)]
     return len(non_gif_images) > 1
 
 
@@ -47,6 +48,7 @@ def has_gif(document: Soup) -> bool:
 
 def has_preview_image(document: Soup) -> bool:
     images = [cast(Tag, img) for img in document.find_all("img")]
+    images = [img for img in images if not is_nga_smile_image(img)]
     return len(images) == 1 and not is_gif_image(images[0])
 
 
@@ -62,6 +64,11 @@ def is_audio_video(video: Tag) -> bool:
 def is_gif_image(image: Tag) -> bool:
     src = (image.get("src") or "").strip().lower()
     return ".gif" in src
+
+
+def is_nga_smile_image(image: Tag) -> bool:
+    src = (image.get("src") or "").strip().lower()
+    return "/ngabbs/post/smile/" in src
 
 
 MEDIA_TITLE_RULES: dict[str, MediaTitleDetector] = {
