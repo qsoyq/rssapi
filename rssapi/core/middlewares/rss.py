@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+from html import escape
 from typing import Any, Awaitable, Callable, TypedDict, cast
 
 import httpx
@@ -54,6 +55,7 @@ def add_middleware(app: FastAPI):
         ExtractHashtagMiddleware,
         AddMediaTitlePrefixMiddleware,
         LimitTitleLengthMiddleware,
+        AppendOriginalPostLinkMiddleware,
     ]
     for middleware in middlewares:
         app.add_middleware(middleware)
@@ -296,6 +298,16 @@ class LimitTitleLengthMiddleware(BaseJSONFeedItemModelMiddleware):
         max_title_length = settings.middleware.max_title_length
         if max_title_length > 0 and feed.title:
             feed.title = feed.title[:max_title_length]
+        return feed
+
+
+class AppendOriginalPostLinkMiddleware(BaseJSONFeedItemModelMiddleware):
+    def transform_feed_item(self, feed: JSONFeedItem) -> JSONFeedItem:
+        if not feed.content_html or not feed.url:
+            return feed
+
+        safe_url = escape(str(feed.url), quote=True)
+        feed.content_html = f'{feed.content_html}<p><a href="{safe_url}">查看原贴</a></p>'
         return feed
 
 
