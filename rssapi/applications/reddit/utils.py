@@ -130,7 +130,6 @@ def _build_feed_item(post: PostData) -> JSONFeedItem:
     url = post.url_overridden_by_dest or post.url or ""
     selftext_html = post.selftext_html or ""
     selftext = post.selftext or ""
-    is_self = post.is_self if post.is_self is not None else True
     is_gallery = post.is_gallery or False
     score = post.score or 0
     num_comments = post.num_comments or 0
@@ -180,10 +179,6 @@ def _build_feed_item(post: PostData) -> JSONFeedItem:
             if preview_url:
                 title = f"🖼️ {title}"
                 content_parts.append(f'<p><img src="{escape(preview_url, quote=True)}" /></p>')
-
-    if not is_self and target_url:
-        safe_url = escape(target_url, quote=True)
-        content_parts.append(f'<p><a href="{safe_url}">查看原帖链接</a></p>')
 
     content_parts.append(f"<p>👍 {score} · 💬 {num_comments}</p>")
 

@@ -1,5 +1,3 @@
-# https://www.reddit.com/r/programming
-
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
