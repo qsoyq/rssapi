@@ -34,6 +34,8 @@ class QuotedTweet(BaseModel):
     id: str
     text: str
     author: TweetAuthor
+    urls: list[str] = Field(default_factory=list)
+    article_title: str | None = None
 
 
 class Tweet(BaseModel):

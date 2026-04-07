@@ -1,6 +1,6 @@
 [project]
 name = "rssapi"
-version = "0.2.36"
+version = "0.2.37"
 description = "RSS subscription tool"
 readme = "README.md"
 requires-python = ">=3.10"

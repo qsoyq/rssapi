@@ -29,6 +29,9 @@ def _avatar_from_tweet(tweet: Tweet) -> str | None:
 
 
 def _title_from_tweet(tweet: Tweet) -> str:
+    if tweet.quoted_tweet and tweet.quoted_tweet.article_title:
+        return tweet.quoted_tweet.article_title
+
     title = text_without_http_links(tweet.text)
     title = title_from_text_by_delimiter_priority(title)
     media_prefix = title_emoji_prefix_from_tweet(tweet)

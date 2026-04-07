@@ -233,18 +233,21 @@ def content_html_from_tweet(tweet: Tweet) -> str:
                 )
 
     if tweet.quoted_tweet:
-        qt = tweet.quoted_tweet
-        qt_screen_name = html.escape(qt.author.screen_name)
-        qt_name = html.escape(qt.author.name)
-        qt_text = markdown_parse(qt.text)
-        qt_url = f"https://x.com/{qt_screen_name}/status/{qt.id}"
-        content_html += (
-            f"<blockquote>"
-            f'<p><a href="https://x.com/{qt_screen_name}"><b>{qt_name}</b> @{qt_screen_name}</a></p>'
-            f"{qt_text}"
-            f'<p><a href="{qt_url}">Original</a></p>'
-            f"</blockquote>"
-        )
+        if tweet.quoted_tweet.article_title and tweet.quoted_tweet.urls:
+            content_html += f'<p><a href="{tweet.quoted_tweet.urls[0]}">{tweet.quoted_tweet.article_title}</a></p>'
+        else:
+            qt = tweet.quoted_tweet
+            qt_screen_name = html.escape(qt.author.screen_name)
+            qt_name = html.escape(qt.author.name)
+            qt_text = markdown_parse(qt.text)
+            qt_url = f"https://x.com/{qt_screen_name}/status/{qt.id}"
+            content_html += (
+                f"<blockquote>"
+                f'<p><a href="https://x.com/{qt_screen_name}"><b>{qt_name}</b> @{qt_screen_name}</a></p>'
+                f"{qt_text}"
+                f'<p><a href="{qt_url}">Original</a></p>'
+                f"</blockquote>"
+            )
 
     return content_html
 
