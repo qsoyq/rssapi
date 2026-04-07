@@ -80,7 +80,7 @@ async def fetch_feeds(owner: str, repo: str, token: str | None, per_page: int, p
         "page": page,
     }
     async with httpx.AsyncClient(headers=headers) as client:
-        res = await client.get(url, params=params)
+        res = await client.get(url, params=params, follow_redirects=True)
         if res.is_error:
             raise HTTPException(status_code=res.status_code, detail=res.text)
         body = res.json()
