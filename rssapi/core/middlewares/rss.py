@@ -233,6 +233,7 @@ class TelegramFeedFilterMiddleware(BaseFeedFilterMiddleware):
         "https://hongxingdl.com",
         "搜 蒸蒸日上 概率有5元猫卡",
         "<code>ikelee</code>",
+        "AI 账号会员自助平台",
     ]
 
     MATCH_URL_PATTERN = r"/api/rss/telegram/"
