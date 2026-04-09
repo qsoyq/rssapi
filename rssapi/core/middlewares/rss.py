@@ -56,6 +56,7 @@ def add_middleware(app: FastAPI):
         AddMediaTitlePrefixMiddleware,
         LimitTitleLengthMiddleware,
         AppendOriginalPostLinkMiddleware,
+        ClearHomePageUrlMiddleware,
     ]
     for middleware in middlewares:
         app.add_middleware(middleware)
@@ -345,6 +346,14 @@ class FillFeedAuthorFromItemsMiddleware(BaseJSONFeedMiddleware):
                 if item.get("author"):
                     body["author"] = item["author"]
                     break
+        return body
+
+
+class ClearHomePageUrlMiddleware(BaseJSONFeedMiddleware):
+    """将 feed 的 home_page_url 设置为空字符串"""
+
+    def transform_body(self, body: dict[str, Any], _: Request) -> dict[str, Any]:
+        body["home_page_url"] = ""
         return body
 
 
