@@ -9,11 +9,9 @@ from bs4 import BeautifulSoup as Soup
 from bs4 import Tag
 from cachetools import FIFOCache, cached
 from fastapi import FastAPI, Request
-from pydantic import ValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-from rssapi.applications.rss.schemas.adapter import HttpUrlTypeAdapter
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
 from rssapi.core.settings import settings
@@ -31,16 +29,6 @@ class JSONFeedResponseData(TypedDict):
     headers: dict[str, str]
 
 
-def is_valid_http_url(value: str | None) -> bool:
-    if not value:
-        return False
-    try:
-        HttpUrlTypeAdapter.validate_python(value)
-    except ValidationError:
-        return False
-    return True
-
-
 def add_middleware(app: FastAPI):
     middlewares = [
         MarkdownRenderMiddleware,
@@ -50,7 +38,6 @@ def add_middleware(app: FastAPI):
         AddTwitterHTMLFeedMiddleware,
         UpdateTelegraphHTMLFeedMiddleware,
         FillFeedAuthorFromItemsMiddleware,
-        FillImageFromAuthorAvatarMiddleware,
         FillFeedIconFromAuthorAvatarMiddleware,
         ExtractHashtagMiddleware,
         AddMediaTitlePrefixMiddleware,
@@ -310,18 +297,6 @@ class AppendOriginalPostLinkMiddleware(BaseJSONFeedItemModelMiddleware):
 
         safe_url = escape(str(feed.url), quote=True)
         feed.content_html = f'{feed.content_html}<p><a href="{safe_url}">查看原贴</a></p>'
-        return feed
-
-
-class FillImageFromAuthorAvatarMiddleware(BaseJSONFeedItemModelMiddleware):
-    """当 item.image 不存在且 author.avatar 存在时，用 avatar 填充 image
-
-    TODO: 支持将 base64 转成URL
-    """
-
-    def transform_feed_item(self, feed: JSONFeedItem) -> JSONFeedItem:
-        if not feed.image and feed.author and is_valid_http_url(feed.author.avatar):
-            feed.image = feed.author.avatar
         return feed
 
 

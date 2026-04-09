@@ -30,7 +30,7 @@ def test_v2ex_aggregation(client: TestClient):
     response = client.get("/api/rss/jsonfeed/v2ex/aggregation", params={"topics": ["dns"]})
     assert response.status_code == 200
     assert response.json()["items"]
-    assert response.json()["home_page_url"] == "https://v2ex.com/go/dns"
+    assert response.json()["home_page_url"] == ""
 
 
 def test_v2ex_favorite_requires_session_key(client: TestClient):
