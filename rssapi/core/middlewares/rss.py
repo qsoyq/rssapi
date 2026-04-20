@@ -222,6 +222,8 @@ class TelegramFeedFilterMiddleware(BaseFeedFilterMiddleware):
         "搜 蒸蒸日上 概率有5元猫卡",
         "<code>ikelee</code>",
         "AI 账号会员自助平台",
+        "小信商店",
+        "CardoPay",
     ]
 
     MATCH_URL_PATTERN = r"/api/rss/telegram/"
