@@ -207,7 +207,7 @@ markers = ["nga_delay: add a delay before running the marked tests.d')"]
 [tool.uv.sources]
 typer-utils = { git = "https://github.com/qsoyq/typer_utils" }
 httpx-disable-verify = { git = "https://github.com/qsoyq/httpx-disable-verify.git" }
-ai-assistant = { git = "https://github.com/qsoyq/ai-assistant.git", rev = "0.1.17" }
+ai-assistant = { git = "https://github.com/qsoyq/ai-assistant.git", rev = "0.1.28" }
 
 [tool.isort]
 profile = "hug"

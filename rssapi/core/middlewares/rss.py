@@ -267,10 +267,10 @@ class AddMediaTitlePrefixMiddleware(BaseJSONFeedItemModelMiddleware):
     MEDIA_TITLE_RULES: dict[str, MediaTitleDetector] = DEFAULT_MEDIA_TITLE_RULES
 
     def transform_feed_item(self, feed: JSONFeedItem) -> JSONFeedItem:
-        if not feed.title or not feed.content_html:
+        if not feed.content_html:
             return feed
 
-        title = feed.title
+        title = feed.title or ""
         document = Soup(feed.content_html, "lxml")
 
         for prefix, detector in self.MEDIA_TITLE_RULES.items():
@@ -278,7 +278,7 @@ class AddMediaTitlePrefixMiddleware(BaseJSONFeedItemModelMiddleware):
                 continue
 
             if detector(document):
-                title = f"{prefix} {title}"
+                title = f"{prefix} {title}" if title else prefix
 
         feed.title = title
         return feed
