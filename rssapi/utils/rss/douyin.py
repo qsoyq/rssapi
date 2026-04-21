@@ -76,8 +76,7 @@ def _extract_cover(post: dict) -> str | None:
 
 
 def _extract_image_gallery(post: dict) -> list[str]:
-    # 图文模式 — 注意：原实现 key 拼写为 "iamges"，保留以维持原行为
-    if not post.get("iamges"):
+    if not post.get("images"):
         return []
     return [img["url_list"][0] for img in post.get("images", [])]
 
@@ -126,8 +125,6 @@ def _build_feed_payload(
         "tags": _extract_tags(post),
         "author": feed_author,
     }
-    if cover:
-        payload["image"] = cover
     return payload
 
 
