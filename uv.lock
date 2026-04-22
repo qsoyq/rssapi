@@ -3677,7 +3677,7 @@ wheels = [
 
 [[package]]
 name = "rssapi"
-version = "0.2.44"
+version = "0.2.45"
 source = { editable = "." }
 dependencies = [
     { name = "ai-assistant" },

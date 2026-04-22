@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import time
 from abc import ABC
@@ -103,7 +104,13 @@ class AsyncPlaywright(ABC):
                 try:
                     logger.debug(f"{self.__class__.__name__} [on_response] {self.url} {response.request.method}")
                     is_json = "application/json" in response.headers.get("content-type", "")
-                    body = await response.json() if is_json else await response.text()
+                    text = await response.text()
+                    body = text
+                    try:
+                        if is_json:
+                            body = json.loads(text)
+                    except json.decoder.JSONDecodeError as e:
+                        logger.warning(f"[playwright][on_response] decode json error: {self.url}\t{e}")
                     if self.fut and not self.fut.done():
                         self.fut.set_result(body)
                 except Exception as e:
