@@ -1,42 +1,29 @@
 [project]
 name = "rssapi"
-version = "0.2.45"
+version = "0.3.0"
 description = "RSS subscription tool"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "pytest",
-    "mypy",
-    "pre-commit",
-    "ipython",
     "fastapi",
     "uvicorn",
     "httpx[http2,socks]",
     "hypercorn",
-    "pretty-errors",
     "typer",
     "pyyaml",
     "oss2",
-    "ruff",
-    "types-pyyaml",
     "python-dateutil",
-    "types-python-dateutil",
     "xmltodict",
-    "types-xmltodict",
     "beautifulsoup4",
     "yagmail",
-    "types-beautifulsoup4",
     "cairosvg",
     "python-multipart",
-    "pip",
     "pycairo",
     "pyjwt",
     "ics",
     "dateparser",
-    "types-dateparser",
     "psutil",
     "python-ssl-checker",
-    "pytest-asyncio",
     "feedgen",
     "pytz",
     "cloudscraper",
@@ -44,11 +31,9 @@ dependencies = [
     "cachetools",
     "htmlmin",
     "asyncache",
-    "types-cachetools",
     "js2py",
     "markdown",
     "curl-cffi",
-    "pytest-playwright",
     "proto-plus",
     "typer-utils@git+https://github.com/qsoyq/typer_utils",
     "google-api-python-client>=2.190.0",
@@ -58,6 +43,25 @@ dependencies = [
     "githubkit",
     "rdt-cli>=0.4.1",
 ]
+ [dependency-groups]
+  dev = [
+    "pytest",
+    "mypy",
+    "pre-commit",
+    "ipython",
+    "pretty-errors",
+    "pytest-playwright",
+    "types-cachetools",
+    "pytest-asyncio",
+    "types-dateparser",
+    "pip",
+    "types-beautifulsoup4",
+    "types-xmltodict",
+    "types-python-dateutil",
+    "ruff",
+    "types-pyyaml",
+  ]
+
 
 [project.scripts]
 rssapi-server = "rssapi.main:cmd"
