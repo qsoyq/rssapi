@@ -137,7 +137,11 @@ def _fill_title_from_tags(item: JSONFeedItem) -> None:
         item.title = "/".join(item.tags)
 
 
-def to_feeds(username: str, body: dict, *, video_autoplay: bool = True) -> list[JSONFeedItem]:
+def to_feeds(username: str, body: dict | str, *, video_autoplay: bool = True) -> list[JSONFeedItem]:
+    if not isinstance(body, dict):
+        logger.warning(f"[rss.douyin.user][to_feeds] feeds body must be dict: {body}")
+        raise ValueError("douyin user feeds body must be dict")
+
     if not body["aweme_list"]:
         return []
     author = body["aweme_list"][0]["author"]

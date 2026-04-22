@@ -147,5 +147,5 @@ async def get_feeds(username: str, cookie: str | None) -> list[JSONFeedItem]:
             play.add_cookies(cookies)
 
         result = await play.run()
-        items = to_feeds(username, cast(dict, result))
+        items = to_feeds(username, result)
         return cast(list[JSONFeedItem], items)

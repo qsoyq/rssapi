@@ -110,7 +110,9 @@ class AsyncPlaywright(ABC):
                         if is_json:
                             body = json.loads(text)
                     except json.decoder.JSONDecodeError as e:
-                        logger.warning(f"[playwright][on_response] decode json error: {self.url}\t{e}")
+                        logger.warning(
+                            f"[playwright][on_response] decode json error: method={response.request.method},url={response.request.url},status={response.status}, headers={response.headers}\t{e}"
+                        )
                     if self.fut and not self.fut.done():
                         self.fut.set_result(body)
                 except Exception as e:

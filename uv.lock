@@ -3787,6 +3787,7 @@ dev = [
     { name = "pip" },
     { name = "pre-commit" },
     { name = "pretty-errors" },
+    { name = "pretty-errors", specifier = ">=1.2.25" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-playwright" },

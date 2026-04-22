@@ -60,6 +60,7 @@ dependencies = [
     "types-python-dateutil",
     "ruff",
     "types-pyyaml",
+    "pretty-errors>=1.2.25",
   ]
 
 
