@@ -113,6 +113,8 @@ class AsyncPlaywright(ABC):
                         logger.warning(
                             f"[playwright][on_response] decode json error: method={response.request.method},url={response.request.url},status={response.status}, headers={response.headers}\t{e}"
                         )
+                        logger.warning(f"{text}")
+                        raise e
                     if self.fut and not self.fut.done():
                         self.fut.set_result(body)
                 except Exception as e:

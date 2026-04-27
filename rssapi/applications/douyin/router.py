@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from typing import cast
 
@@ -145,7 +146,9 @@ async def get_feeds(username: str, cookie: str | None) -> list[JSONFeedItem]:
         if cookie is not None:
             cookies = play.cookies_by_str(cookie, "https://www.douyin.com")
             play.add_cookies(cookies)
-
-        result = await play.run()
+        try:
+            result = await play.run()
+        except json.decoder.JSONDecodeError:
+            raise HTTPException(500, detail="fetch user feed failed")
         items = to_feeds(username, result)
         return cast(list[JSONFeedItem], items)
