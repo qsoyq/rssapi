@@ -224,6 +224,7 @@ class TelegramFeedFilterMiddleware(BaseFeedFilterMiddleware):
         "AI 账号会员自助平台",
         "小信商店",
         "CardoPay",
+        "SNKRX",
     ]
 
     MATCH_URL_PATTERN = r"/api/rss/telegram/"
