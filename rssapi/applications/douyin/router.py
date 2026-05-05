@@ -53,7 +53,7 @@ async def user(
             J --> K[返回200]
     </pre>
     """
-    return await _get_douyin_user_videos(req, username, timeout, use_cache, None)
+    raise HTTPException(status_code=400, detail="Not implemented")
 
 
 @router.get(
