@@ -1,6 +1,6 @@
 [project]
 name = "rssapi"
-version = "0.3.3"
+version = "0.3.4"
 description = "RSS subscription tool"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -42,6 +42,7 @@ dependencies = [
   "ai-assistant@git+https://github.com/qsoyq/ai-assistant.git",
   "githubkit",
   "rdt-cli>=0.4.1",
+  "playwright",
 ]
 
 [dependency-groups]
@@ -212,7 +213,7 @@ markers = ["nga_delay: add a delay before running the marked tests.d')"]
 [tool.uv.sources]
 typer-utils = { git = "https://github.com/qsoyq/typer_utils" }
 httpx-disable-verify = { git = "https://github.com/qsoyq/httpx-disable-verify.git" }
-ai-assistant = { git = "https://github.com/qsoyq/ai-assistant.git", rev = "0.1.28" }
+ai-assistant = { git = "https://github.com/qsoyq/ai-assistant.git", rev = "0.2.8" }
 
 [tool.isort]
 profile = "hug"
