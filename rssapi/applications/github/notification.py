@@ -9,6 +9,7 @@ from githubkit.exception import RequestFailed
 from githubkit.versions.latest.models import Thread, ThreadPropSubject
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
+from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
 
 # GitHub API 实际返回的 latest_comment_url 可能为 null，但 githubkit OpenAPI spec 未标注为 nullable
@@ -132,7 +133,7 @@ async def build_notifications_feed(
     return feed
 
 
-@cached(RandomTTLCache(4096, 300))
+@cached(RandomTTLCache(settings.github.notification_cache_maxsize, settings.github.notification_cache_ttl))
 async def fetch_feeds(
     token: str,
     all_: bool,

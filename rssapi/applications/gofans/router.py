@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
+from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache, cached
 
 router = APIRouter(tags=["RSS"], prefix="/rss/gofans")
@@ -67,7 +68,7 @@ async def macOS_jsonfeed(
     return feed
 
 
-@cached(RandomTTLCache(4096, 3600))
+@cached(RandomTTLCache(settings.gofans.cache_maxsize, settings.gofans.cache_ttl))
 async def get_gofans_app_records_by_cache(limit, page, kind) -> list[JSONFeedItem]:
     items = []
     resp = await get_gofans_app_records(limit, page, kind)

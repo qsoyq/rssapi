@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
+from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
 
 router = APIRouter(tags=["RSS"], prefix="/rss/readhub")
@@ -51,7 +52,7 @@ async def daily(req: Request):
     return feed
 
 
-@cached(RandomTTLCache(4096, 900))
+@cached(RandomTTLCache(settings.readhub.cache_maxsize, settings.readhub.cache_ttl))
 async def fetch_feeds() -> list[JSONFeedItem]:
     url = "https://www.readhub.cn/daily"
     headers = {

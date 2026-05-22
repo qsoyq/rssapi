@@ -11,12 +11,15 @@ from fastapi import HTTPException
 from googleapiclient.discovery import build
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
+from rssapi.core.settings import settings
 from rssapi.utils.basic import URLToolkit
 from rssapi.utils.network import retry_http
 
 logger = logging.getLogger(__file__)
 
-_channel_feed_cache: TTLCache = TTLCache(maxsize=4096, ttl=3600)
+_channel_feed_cache: TTLCache = TTLCache(
+    maxsize=settings.youtube.channel_feed_cache_maxsize, ttl=settings.youtube.channel_feed_cache_ttl
+)
 
 YOUTUBE_API_TIMEOUT = 15
 

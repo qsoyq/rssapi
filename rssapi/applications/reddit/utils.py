@@ -12,7 +12,7 @@ from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache, cached
 
 
-@cached(RandomTTLCache(4096, 600))
+@cached(RandomTTLCache(settings.reddit.user_posts_cache_maxsize, settings.reddit.user_posts_cache_ttl))
 def fetch_subreddit_feed(
     subreddit: str, max_posts: int, cookies: str | None
 ) -> tuple[SubredditAbout, list[JSONFeedItem]]:

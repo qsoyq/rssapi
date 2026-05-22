@@ -8,6 +8,7 @@ from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
 from rssapi.applications.github.schemas.releases import AssetSchema, AuthorSchema, ReleaseSchema
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
+from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
 from rssapi.utils.md import markdown_parse
 
@@ -63,7 +64,7 @@ async def releases_list(
     return feed
 
 
-@cached(RandomTTLCache(4096, 300))
+@cached(RandomTTLCache(settings.github.release_cache_maxsize, settings.github.release_cache_ttl))
 async def fetch_feeds(owner: str, repo: str, token: str | None, per_page: int, page: int) -> list[JSONFeedItem]:
     items = []
 

@@ -9,7 +9,7 @@ from playwright._impl._errors import TimeoutError as PlaywrightTimeoutError
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
-from rssapi.core.settings import AppSettings
+from rssapi.core.settings import AppSettings, settings
 from rssapi.utils.cache import RandomTTLCache
 from rssapi.utils.rss.douyin import AccessHistory, DouyinPlaywright, TimeoutException, to_feeds
 
@@ -131,7 +131,7 @@ def douyin_user_feeds_handler(feed: dict, items: list[JSONFeedItem]):
     feed["items"] = items
 
 
-@cached(RandomTTLCache(4096, AppSettings().rss_douyin_user_feeds_cache_time))
+@cached(RandomTTLCache(settings.douyin.user_feeds_cache_maxsize, settings.douyin.user_feeds_cache_ttl))
 async def get_feeds_by_cache(username: str, cookie: str | None) -> list[JSONFeedItem]:
     return await get_feeds(username, cookie)
 

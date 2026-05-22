@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from rssapi.applications.douyin.router import get_feeds_by_cache
-from rssapi.core.settings import AppSettings
+from rssapi.core.settings import AppSettings, settings
 from rssapi.utils.nga import NgaToolkit  # type:ignore
 from rssapi.utils.rss.douyin import AccessHistory
 
@@ -67,7 +67,10 @@ async def startup_event(app: FastAPI):
             await asyncio.sleep(AppSettings().rss_douyin_user_auto_fetch_wait)
 
     logger.info(f"settings: {AppSettings().model_dump()}")
-    asyncio.create_task(asyncio.to_thread(NgaToolkit.get_smiles), name="get_smiles")
+    if settings.nga.smiles_preload_enable:
+        asyncio.create_task(asyncio.to_thread(NgaToolkit.get_smiles), name="get_smiles")
+    else:
+        logger.info("[nga.smiles_preload] Disable")
     asyncio.create_task(rss_douyin_user_auto_fetch(), name="rss_douyin_user_auto_fetch")
 
 

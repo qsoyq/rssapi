@@ -8,6 +8,7 @@ from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
 from rssapi.applications.github.schemas.issues import GithubIssue
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
+from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
 
 router = APIRouter(tags=["RSS"], prefix="/rss/github/issues")
@@ -64,7 +65,7 @@ async def commits_list(
     return feed
 
 
-@cached(RandomTTLCache(4096, 1800))
+@cached(RandomTTLCache(settings.github.issue_cache_maxsize, settings.github.issue_cache_ttl))
 async def fetch_feeds(owner: str, repo: str, token: str | None, per_page: int, page: int) -> list[JSONFeedItem]:
     items = []
 

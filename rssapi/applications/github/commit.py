@@ -9,6 +9,7 @@ from rssapi.applications.github.schemas import AuthorSchema
 from rssapi.applications.github.schemas.commits import CommitItemSchema, CommitSchema
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
+from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
 
 router = APIRouter(tags=["RSS"], prefix="/rss/github/commits")
@@ -63,7 +64,7 @@ async def commits_list(
     return feed
 
 
-@cached(RandomTTLCache(4096, 1800))
+@cached(RandomTTLCache(settings.github.commit_cache_maxsize, settings.github.commit_cache_ttl))
 async def fetch_feeds(owner: str, repo: str, token: str | None, per_page: int, page: int) -> list[JSONFeedItem]:
     items = []
 

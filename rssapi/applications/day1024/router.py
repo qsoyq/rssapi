@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedAuthor, JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
+from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
 
 router = APIRouter(tags=["RSS"], prefix="/rss/1024.day")
@@ -51,7 +52,7 @@ async def jsonfeed(req: Request):
     return feed
 
 
-@cached(RandomTTLCache(4096, 3600))
+@cached(RandomTTLCache(settings.day1024.cache_maxsize, settings.day1024.cache_ttl))
 async def fetch_feeds() -> list[JSONFeedItem]:
     items = []
     url = "https://1024.day/api/discussions?include=user%2ClastPostedUser%2Ctags%2Ctags.parent%2CfirstPost&sort=-createdAt&page%5Boffset%5D=0"

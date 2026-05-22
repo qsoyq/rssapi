@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query, Request
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
+from rssapi.core.settings import settings
 from rssapi.utils.basic import TelegramToolkit
 from rssapi.utils.cache import RandomTTLCache
 from rssapi.utils.md import markdown_parse
@@ -86,6 +87,6 @@ async def fetch_feeds(channels: list[str]) -> list[JSONFeedItem]:
     return items
 
 
-@cached(RandomTTLCache(4096, 900))
+@cached(RandomTTLCache(settings.telegram.cache_maxsize, settings.telegram.cache_ttl))
 async def get_channel_messages(channelName: str):
     return await TelegramToolkit.get_channel_messages(channelName)

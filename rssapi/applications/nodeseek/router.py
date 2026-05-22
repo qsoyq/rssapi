@@ -15,7 +15,7 @@ from htmlmin import minify
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed
 from rssapi.core.responses import PrettyJSONFeedResponse
-from rssapi.core.settings import AppSettings
+from rssapi.core.settings import AppSettings, settings
 from rssapi.utils.cache import RandomTTLCache, cached
 
 router = APIRouter(tags=["RSS"], prefix="/rss/nodeseek/category")
@@ -28,8 +28,12 @@ class NodeseekToolkit:
     Semaphore = asyncio.Semaphore(1)
     NEXTWAIT = 5
     ONCE_FETCH_ARTICLE_CACHE_MAX = 50
-    ArticlePostCache: MutableMapping[str, bytes] = TTLCache(4096, ttl=86400 * 3)
-    LoginRequired: MutableMapping[str, bool] = TTLCache(4096, ttl=86400 * 3)
+    ArticlePostCache: MutableMapping[str, bytes] = TTLCache(
+        settings.nodeseek.article_post_cache_maxsize, ttl=settings.nodeseek.article_post_cache_ttl
+    )
+    LoginRequired: MutableMapping[str, bool] = TTLCache(
+        settings.nodeseek.login_required_cache_maxsize, ttl=settings.nodeseek.login_required_cache_ttl
+    )
 
     @staticmethod
     def html_compresse(html_content: str) -> bytes:
@@ -241,7 +245,7 @@ async def populate_article_content(
     return items
 
 
-@cached(RandomTTLCache(4096, 600))
+@cached(RandomTTLCache(settings.nodeseek.cache_maxsize, settings.nodeseek.cache_ttl))
 async def get_feeds_by_cache(
     category: str,
     *,

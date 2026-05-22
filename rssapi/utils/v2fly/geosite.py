@@ -8,6 +8,7 @@ import proto
 from fastapi import HTTPException
 
 from rssapi.applications.rss.schemas.v2fly.geosite_pb import DomainTypeEnum, GeoSiteList
+from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache, cached
 
 
@@ -50,7 +51,7 @@ class Record:
         return f"{self._type} - {self._value} - {self._attribute}"
 
 
-@cached(RandomTTLCache(4096, 43200))
+@cached(RandomTTLCache(settings.v2fly.geosite_name_cache_maxsize, settings.v2fly.geosite_name_cache_ttl))
 async def fetch_by_name(name):
     url = f"https://raw.githubusercontent.com/v2fly/domain-list-community/master/data/{name}"
     async with httpx.AsyncClient(verify=False) as client:
@@ -119,7 +120,7 @@ async def get_domains_by_geosite(name: str, *, include_all: bool = True) -> set[
     return result
 
 
-@cached(RandomTTLCache(16, 43200))
+@cached(RandomTTLCache(settings.v2fly.geosite_library_cache_maxsize, settings.v2fly.geosite_library_cache_ttl))
 async def get_geosite_library_by_url(
     url: str = "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat",
 ) -> proto.Message:

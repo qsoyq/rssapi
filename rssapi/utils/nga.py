@@ -21,6 +21,7 @@ from rssapi.applications.nga.schemas import (
     Thread,
     Threads,
 )
+from rssapi.core.settings import settings
 from rssapi.utils.bs4 import select_one_by
 
 logger = logging.getLogger(__name__)
@@ -113,7 +114,7 @@ class NgaToolkit:
         return threads
 
     @staticmethod
-    @cached(TTLCache(1024, 86400))
+    @cached(TTLCache(settings.nga.sections_cache_maxsize, settings.nga.sections_cache_ttl))
     async def get_sections() -> GetForumSectionsRes:
         """获取论坛分区信息"""
         sections = []
@@ -140,7 +141,7 @@ class NgaToolkit:
         return GetForumSectionsRes(sections=sections)
 
     @staticmethod
-    @cached(TTLCache(1024, 86400 * 3))
+    @cached(TTLCache(settings.nga.smiles_cache_maxsize, settings.nga.smiles_cache_ttl))
     def get_smiles() -> list[NGASmile]:
         data = []
         with httpx.Client(verify=False) as client:
@@ -185,7 +186,7 @@ class NgaToolkit:
         return data
 
     @staticmethod
-    @cached(TTLCache(4096, 86400))
+    @cached(TTLCache(settings.nga.thread_detail_cache_maxsize, settings.nga.thread_detail_cache_ttl))
     async def fetch_thread_detail(url: str, cid: str, uid: str) -> NgaThreadHtml | None:
         cookies = {
             "ngaPassportUid": uid,

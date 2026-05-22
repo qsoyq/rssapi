@@ -14,6 +14,7 @@ from rssapi.applications.v2ex.utils import (
     get_url_from_notification_text,
 )
 from rssapi.core.responses import PrettyJSONFeedResponse
+from rssapi.core.settings import settings
 from rssapi.utils.basic import get_date_string_for_shanghai
 from rssapi.utils.cache import RandomTTLCache
 
@@ -22,7 +23,7 @@ router = APIRouter(tags=["RSS"], prefix="/rss/jsonfeed/v2ex")
 logger = logging.getLogger(__file__)
 
 
-@cached(RandomTTLCache(4096, 600))
+@cached(RandomTTLCache(settings.v2ex.cache_maxsize, settings.v2ex.cache_ttl))
 async def fetch_jsonfeed_items(topic: str) -> list[JSONFeedItem]:
     url = f"https://www.v2ex.com/feed/{topic}.json"
     try:

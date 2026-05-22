@@ -17,6 +17,7 @@ from rssapi.applications.twitter.utils import (
     title_emoji_prefix_from_tweet,
     title_from_text_by_delimiter_priority,
 )
+from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
 
 logger = logging.getLogger(__file__)
@@ -85,7 +86,7 @@ async def _fetch_and_convert(
     return _tweets_to_jsonfeed_items(posts)
 
 
-@cached(RandomTTLCache(4096, 7200))
+@cached(RandomTTLCache(settings.twitter.user_posts_cache_maxsize, settings.twitter.user_posts_cache_ttl))
 async def fetch_user_posts_jsonfeed_items(screen_name: str, max_tweets: int, cookies: str) -> list[JSONFeedItem]:
     return await _fetch_and_convert(
         lambda: fetch_user_posts(screen_name, max_tweets, cookies),
@@ -93,6 +94,6 @@ async def fetch_user_posts_jsonfeed_items(screen_name: str, max_tweets: int, coo
     )
 
 
-@cached(RandomTTLCache(4096, 3600))
+@cached(RandomTTLCache(settings.twitter.feed_cache_maxsize, settings.twitter.feed_cache_ttl))
 async def fetch_feed_jsonfeed_items(max_tweets: int, cookies: str, feed_type: str) -> list[JSONFeedItem]:
     return await _fetch_and_convert(lambda: fetch_feed(max_tweets, cookies, feed_type), f"feed ({feed_type})")

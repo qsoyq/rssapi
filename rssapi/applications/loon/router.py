@@ -9,13 +9,14 @@ from fastapi import APIRouter, Query, Request
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
+from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
 
 router = APIRouter(tags=["RSS"], prefix="/rss/loon")
 logger = logging.getLogger(__file__)
 
 
-@cached(RandomTTLCache(4096, 1800))
+@cached(RandomTTLCache(settings.loon.cache_maxsize, settings.loon.cache_ttl))
 async def get_ipx_info(url: str, useragent: str) -> dict:
     meta = {}
     headers = {"User-Agent": useragent}

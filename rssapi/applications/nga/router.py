@@ -9,6 +9,7 @@ from fastapi import APIRouter, Path, Query, Request
 from rssapi.applications.nga.schemas import Thread
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed
 from rssapi.core.responses import PrettyJSONFeedResponse
+from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache, cached
 from rssapi.utils.nga import NgaToolkit  # type: ignore
 from rssapi.utils.nga import OrderByEnum, Threads
@@ -137,7 +138,7 @@ async def threads_jsonfeed(
     return feed
 
 
-@cached(RandomTTLCache(4096, 300))
+@cached(RandomTTLCache(settings.nga.cache_maxsize, settings.nga.cache_ttl))
 async def get_threads_by_cache(
     uid: str | None = None,
     cid: str | None = None,
