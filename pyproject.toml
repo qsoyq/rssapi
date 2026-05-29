@@ -1,6 +1,6 @@
 [project]
 name = "rssapi"
-version = "0.4.0"
+version = "0.4.1"
 description = "RSS subscription tool"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,14 +16,10 @@ dependencies = [
   "xmltodict",
   "beautifulsoup4",
   "yagmail",
-  "cairosvg",
   "python-multipart",
-  "pycairo",
   "pyjwt",
-  "ics",
   "dateparser",
   "psutil",
-  "python-ssl-checker",
   "feedgen",
   "pytz",
   "cloudscraper",
@@ -35,11 +31,8 @@ dependencies = [
   "markdown",
   "curl-cffi",
   "proto-plus",
-  "typer-utils@git+https://github.com/qsoyq/typer_utils",
   "google-api-python-client>=2.190.0",
-  "httpx-disable-verify@git+https://github.com/qsoyq/httpx-disable-verify",
   "twitter-cli==0.8.4",
-  "ai-assistant@git+https://github.com/qsoyq/ai-assistant.git",
   "githubkit",
   "rdt-cli>=0.4.1",
   "playwright",
@@ -63,6 +56,7 @@ dev = [
   "ruff",
   "types-pyyaml",
   "pretty-errors>=1.2.25",
+  "ai-assistant",
 ]
 
 [project.scripts]
@@ -172,11 +166,8 @@ module = [
   "yagmail",
   "bs4",
   "deps",
-  "cairosvg",
   "PyJWT",
-  "ics.*",
   "main",
-  "ssl_checker",
   "pytz",
   "feedgen.*",
   "cloudscraper",
@@ -197,7 +188,6 @@ module = [
   "googleapiclient.*",
   "twitter_cli",
   "twitter_cli.*",
-  "typer_utils.*",
   "ai_assistant",
   "ai_assistant.*",
   "githubkit",
@@ -211,8 +201,6 @@ follow_untyped_imports = true
 markers = ["nga_delay: add a delay before running the marked tests.d')"]
 
 [tool.uv.sources]
-typer-utils = { git = "https://github.com/qsoyq/typer_utils" }
-httpx-disable-verify = { git = "https://github.com/qsoyq/httpx-disable-verify.git" }
 ai-assistant = { git = "https://github.com/qsoyq/ai-assistant.git", rev = "0.2.8" }
 
 [tool.isort]
