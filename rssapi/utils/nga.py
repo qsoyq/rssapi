@@ -6,8 +6,8 @@ from datetime import datetime
 from functools import cache
 
 import httpx
-import js2py
 from asyncache import cached
+from py_mini_racer import MiniRacer
 from bs4 import BeautifulSoup as Soup
 from cachetools import TTLCache
 from fastapi import HTTPException
@@ -146,6 +146,7 @@ class NgaToolkit:
         data = []
         with httpx.Client(verify=False) as client:
             injection = r"""
+            var window = globalThis;
             __NUKE = {
                 addCss: function(){}
             }
@@ -170,9 +171,9 @@ class NgaToolkit:
                 r"""ubbcode.continueCharProc.reg = /[\xb7\x7e\x40\x23\x25\x26\x2a\x2b\x7c\x2d\x3d\x60\x7e\x21\x40\x23\x24\x25\x5e\x26\x2a\x28\x29\x5f\x2b\x7b\x7d\x7c\x3a\x22\x3c\x3e\x3f\x2d\x3d\x5b\x5d\x5c\x3b\x27\x2c\x2e\x2f\uff01\uffe5\u2026\u2026\uff08\uff09\u2014\u2014\uff5b\uff5d\uff1a\u201c\uff1f\u300b\u300a\u3010\u3011\u3001\uff1b\u2018\uff0c\u3002\u3001]{24,}/g""",
                 "",
             )
-            ctx = js2py.EvalJs()  # type: ignore
-            ctx.execute(f"{injection}{js_code}")
-            smiles = ctx.ubbcode.smiles.to_dict()
+            ctx = MiniRacer()
+            ctx.eval(f"{injection}{js_code}")
+            smiles = json.loads(ctx.eval("JSON.stringify(ubbcode.smiles)"))
             for category in smiles.keys():
                 for code, detail in smiles[category].items():
                     if code == "_______name":

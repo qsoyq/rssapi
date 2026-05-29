@@ -27,7 +27,7 @@ dependencies = [
   "cachetools",
   "htmlmin",
   "asyncache",
-  "js2py",
+  "mini-racer",
   "markdown",
   "curl-cffi",
   "proto-plus",
@@ -178,7 +178,7 @@ module = [
   "htmlmin",
   "middlewares.*",
   "asyncache.*",
-  "js2py",
+  "py_mini_racer",
   "markdown",
   "markdown.*",
   "psutil",
@@ -201,7 +201,7 @@ follow_untyped_imports = true
 markers = ["nga_delay: add a delay before running the marked tests.d')"]
 
 [tool.uv.sources]
-ai-assistant = { git = "https://github.com/qsoyq/ai-assistant.git", rev = "0.2.8" }
+ai-assistant = { git = "https://github.com/qsoyq/ai-assistant.git", rev = "v0.3.0" }
 
 [tool.isort]
 profile = "hug"
