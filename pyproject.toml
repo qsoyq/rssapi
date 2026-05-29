@@ -25,7 +25,7 @@ dependencies = [
   "cloudscraper",
   "pydantic-settings",
   "cachetools",
-  "htmlmin",
+  "minify-html",
   "asyncache",
   "mini-racer",
   "markdown",
@@ -57,6 +57,7 @@ dev = [
   "types-pyyaml",
   "pretty-errors>=1.2.25",
   "ai-assistant",
+  "tox-uv",
 ]
 
 [project.scripts]
@@ -175,7 +176,7 @@ module = [
   "pydantic_settings",
   "events.*",
   "cachetools.*",
-  "htmlmin",
+  "minify_html",
   "middlewares.*",
   "asyncache.*",
   "py_mini_racer",
@@ -206,3 +207,14 @@ ai-assistant = { git = "https://github.com/qsoyq/ai-assistant.git", rev = "v0.3.
 [tool.isort]
 profile = "hug"
 src_paths = ["rssapi"]
+
+[tool.tox]
+requires = ["tox>=4.21", "tox-uv>=1.16"]
+env_list = ["3.10", "3.11", "3.12", "3.13", "3.14"]
+
+[tool.tox.env_run_base]
+description = "verify rssapi-server starts on Python {base_python}"
+runner = "uv-venv-lock-runner"
+dependency_groups = ["dev"]
+set_env = { PYTHONWARNINGS = "ignore:urllib3" }
+commands = [["rssapi-server", "--help"]]

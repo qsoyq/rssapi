@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup as Soup
 from cachetools import TTLCache
 from dateparser import parse
 from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
-from htmlmin import minify
+from minify_html import minify
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed
 from rssapi.core.responses import PrettyJSONFeedResponse

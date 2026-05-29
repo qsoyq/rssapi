@@ -72,3 +72,12 @@ repos:
       rev: 0.9.28
       hooks:
           - id: uv-lock
+
+    - repo: local
+      hooks:
+          - id: tox-startup
+            name: tox startup check (py3.10-3.14)
+            entry: uv run tox -p auto
+            language: system
+            pass_filenames: false
+            files: "\\.(py|toml|lock)$"
