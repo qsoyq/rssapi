@@ -25,7 +25,7 @@ uv run pytest tests/
 
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `RSS_TWITTER_USER_POSTS_CACHE_TTL` | `7200` | 用户推文列表缓存 TTL |
+| `RSS_TWITTER_USER_POSTS_CACHE_TTL` | `14400` | 用户推文列表缓存 TTL |
 | `RSS_TWITTER_USER_POSTS_CACHE_MAXSIZE` | `4096` | 用户推文列表缓存条目数 |
 | `RSS_TWITTER_FEED_CACHE_TTL` | `3600` | Feed 缓存 TTL |
 | `RSS_TWITTER_FEED_CACHE_MAXSIZE` | `4096` | Feed 缓存条目数 |

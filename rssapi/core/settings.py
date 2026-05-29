@@ -26,7 +26,7 @@ class TwitterSettings(BaseSettings):
         extra="ignore",
     )
     fetch_concurrency: int = 5
-    user_posts_cache_ttl: int = 7200
+    user_posts_cache_ttl: int = 14400
     user_posts_cache_maxsize: int = 4096
     feed_cache_ttl: int = 3600
     feed_cache_maxsize: int = 4096
