@@ -60,9 +60,43 @@ async def aggregation(req: Request, topics: list[str] = Query([], description="�
     }
     if len(topics) == 1:
         feed["home_page_url"] = f"https://v2ex.com/go/{topics[0]}"
+        feed["title"] = f"{topics[0]}"
     tasks: list[asyncio.Task[list[JSONFeedItem]]] = []
     async with asyncio.TaskGroup() as tg:
         tasks = [tg.create_task(fetch_jsonfeed_items(topic)) for topic in topics]
+
+    items = [item for task in tasks for item in task.result()]
+    feed["items"] = items
+    return feed
+
+
+@router.get(
+    "/topics/{topic_name}",
+    response_model=JSONFeed,
+    summary="V2ex 节点 RSS 订阅聚合",
+    response_class=PrettyJSONFeedResponse,
+)
+async def topic(req: Request, topic_name: str = Path(..., description="订阅主题, 如 wechat、design")):
+    """V2ex Topic RSS 订阅
+
+    https://www.v2ex.com/feed/{topic}.json
+    """
+    host = req.url.hostname
+    items: list[JSONFeedItem] = []
+    feed = {
+        "version": "https://jsonfeed.org/version/1",
+        "title": f"{topic_name}",
+        "description": "",
+        "home_page_url": "https://v2ex.com",
+        "feed_url": f"{req.url.scheme}://{host}{req.url.path}?{req.url.query}",
+        "icon": "https://www.v2ex.com/favicon.ico",
+        "favicon": "https://www.v2ex.com/favicon.ico",
+        "items": items,
+    }
+    feed["home_page_url"] = f"https://v2ex.com/go/{topic_name}"
+    tasks: list[asyncio.Task[list[JSONFeedItem]]] = []
+    async with asyncio.TaskGroup() as tg:
+        tasks = [tg.create_task(fetch_jsonfeed_items(topic)) for topic in [topic_name]]
 
     items = [item for task in tasks for item in task.result()]
     feed["items"] = items
