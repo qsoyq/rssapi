@@ -1,6 +1,6 @@
 [project]
 name = "rssapi"
-version = "0.4.4"
+version = "0.4.5"
 description = "RSS subscription tool"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -202,7 +202,7 @@ follow_untyped_imports = true
 markers = ["nga_delay: add a delay before running the marked tests.d')"]
 
 [tool.uv.sources]
-ai-assistant = { git = "https://github.com/qsoyq/ai-assistant.git", rev = "v0.3.0" }
+ai-assistant = { git = "https://github.com/qsoyq/ai-assistant.git", rev = "0.3.3" }
 
 [tool.isort]
 profile = "hug"

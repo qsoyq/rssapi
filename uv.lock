@@ -16,9 +16,10 @@ resolution-markers = [
 
 [[package]]
 name = "ai-assistant"
-version = "0.3.0"
-source = { git = "https://github.com/qsoyq/ai-assistant.git?rev=v0.3.0#0daba035d2a3c0cac7f0cbeb536b1605c7b79c73" }
+version = "0.3.3"
+source = { git = "https://github.com/qsoyq/ai-assistant.git?rev=0.3.3#5fc6b13e00baa7c01be45aa86eee48436b4561d5" }
 dependencies = [
+    { name = "cryptography" },
     { name = "httpx", extra = ["socks"] },
     { name = "psutil" },
     { name = "pydantic-settings" },
@@ -2682,7 +2683,7 @@ wheels = [
 
 [[package]]
 name = "rssapi"
-version = "0.4.4"
+version = "0.4.5"
 source = { editable = "." }
 dependencies = [
     { name = "asyncache" },
@@ -2777,7 +2778,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "ai-assistant", git = "https://github.com/qsoyq/ai-assistant.git?rev=v0.3.0" },
+    { name = "ai-assistant", git = "https://github.com/qsoyq/ai-assistant.git?rev=0.3.3" },
     { name = "ipython" },
     { name = "mypy" },
     { name = "pip" },
