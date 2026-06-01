@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 from asyncache import cached
 from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
+from fastapi.responses import RedirectResponse
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.applications.v2ex.schemas.notification import Notification
@@ -46,6 +47,8 @@ async def aggregation(req: Request, topics: list[str] = Query([], description="�
 
     https://www.v2ex.com/feed/{topic}.json
     """
+    if len(topics) == 1:
+        return RedirectResponse(req.url_for("topic", topic_name=topics[0]), status_code=307)
     host = req.url.hostname
     items: list[JSONFeedItem] = []
     feed = {
@@ -58,9 +61,6 @@ async def aggregation(req: Request, topics: list[str] = Query([], description="�
         "favicon": "https://www.v2ex.com/favicon.ico",
         "items": items,
     }
-    if len(topics) == 1:
-        feed["home_page_url"] = f"https://v2ex.com/go/{topics[0]}"
-        feed["title"] = f"{topics[0]}"
     tasks: list[asyncio.Task[list[JSONFeedItem]]] = []
     async with asyncio.TaskGroup() as tg:
         tasks = [tg.create_task(fetch_jsonfeed_items(topic)) for topic in topics]
@@ -73,7 +73,7 @@ async def aggregation(req: Request, topics: list[str] = Query([], description="�
 @router.get(
     "/topics/{topic_name}",
     response_model=JSONFeed,
-    summary="V2ex 节点 RSS 订阅聚合",
+    summary="V2ex 节点 Topic RSS 订阅",
     response_class=PrettyJSONFeedResponse,
 )
 async def topic(req: Request, topic_name: str = Path(..., description="订阅主题, 如 wechat、design")):
