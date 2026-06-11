@@ -1,25 +1,99 @@
 # rssapi
 
+`rssapi` is a Python RSS subscription/API service. It exposes FastAPI routes that turn multiple upstream sources into RSS-friendly endpoints, including GitHub, Reddit, Twitter/X, YouTube, Telegram, V2EX, NGA, and other feeds.
+
+## Tech stack
+
+- Python 3.10+
+- FastAPI, Uvicorn, and Hypercorn
+- Pydantic settings
+- pytest for tests
+- Ruff for linting and formatting
+- uv for dependency and environment management
+
 ## Install
 
 ```bash
 pip install git+https://github.com/qsoyq/rssapi.git
 ```
 
-## Test
+For local development:
 
 ```bash
 uv venv
+uv sync --all-groups
+```
+
+## Run locally
+
+```bash
+uv run rssapi-server
+```
+
+You can also run the FastAPI app through an ASGI server, for example:
+
+```bash
+uv run uvicorn rssapi.main:app --reload
+```
+
+## Test
+
+```bash
 uv run pytest tests/
 ```
 
+## Lint and format
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+```
+
+## Build
+
+```bash
+uv build
+```
+
+Build outputs are generated under `dist/` and should not be committed.
+
+## Release process
+
+1. Confirm all intended Issues are merged and CI is passing on `main`.
+2. Update the package version in `pyproject.toml` when cutting a new release.
+3. Run lint, format check, tests, and build locally or in CI.
+4. Create a release tag and GitHub release notes.
+5. Record notable release or rollback notes under `docs/release/` when needed.
+
+## Branch and review workflow
+
+- Use `main` as the default branch.
+- Create feature/fix/tooling branches from `main` using `<type>/<issue-id>-<short-desc>`, for example `fix/123-cache-ttl`.
+- Open a PR for changes and fill in the PR template.
+- Keep PRs focused on their linked Issue.
+- Use CODEOWNERS review for areas that need owner attention.
+
+## Maintainer
+
+- Owner: [`@qsoyq`](https://github.com/qsoyq)
+
+## Related documentation
+
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Decision records](docs/decisions/)
+- [Release notes](docs/release/)
+- [Postmortems](docs/postmortems/)
+
 ## Configuration
 
-所有配置项支持通过环境变量覆盖（也可写入项目根目录的 `.env` 文件）。下面列出当前各 RSS 源的缓存相关环境变量。
+All configuration items support environment variable overrides. They can also be written to a local `.env` file in the project root. Do not commit `.env` files.
 
-### 缓存配置
+The sections below list cache-related environment variables for each RSS source.
 
-每个数据源的缓存大小（`*_MAXSIZE`，条目数上限）和过期时间（`*_TTL`，单位秒）均可独立配置。
+### Cache configuration
+
+Each data source can configure cache size (`*_MAXSIZE`, max entries) and expiry (`*_TTL`, seconds) independently.
 
 #### Twitter (`RSS_TWITTER_`)
 

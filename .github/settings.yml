@@ -1,0 +1,25 @@
+# Expected repository settings for use with a settings-as-code tool such as Probot Settings.
+# This file documents the desired governance state; verify the actual GitHub settings
+# with the GitHub UI or API after applying changes.
+repository:
+  default_branch: main
+  has_issues: true
+  has_projects: true
+  has_wiki: false
+
+branches:
+  - name: main
+    protection:
+      required_pull_request_reviews:
+        required_approving_review_count: 1
+        require_code_owner_reviews: true
+        dismiss_stale_reviews: true
+        require_last_push_approval: true
+      required_status_checks:
+        strict: true
+        contexts:
+          - Python checks
+      enforce_admins: false
+      required_conversation_resolution: true
+      allow_force_pushes: false
+      allow_deletions: false
