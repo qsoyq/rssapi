@@ -1,0 +1,55 @@
+name: notify proxy-tool
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      version:
+        description: rssapi release version to apply, for example 0.4.6
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notify-proxy-tool-${{ github.event_name == 'workflow_dispatch' && inputs.version || github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  trigger-proxy-tool:
+    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Resolve rssapi version
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            version="$DISPATCH_VERSION"
+          else
+            version="$RELEASE_TAG"
+          fi
+
+          if [ -z "$version" ]; then
+            echo "rssapi release version is required" >&2
+            exit 1
+          fi
+
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger proxy-tool rssapi update
+        env:
+          GH_TOKEN: ${{ secrets.PROXY_TOOL_WORKFLOW_TOKEN }}
+          RSSAPI_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          gh workflow run update-rssapi.yml \
+            --repo qsoyq/proxy-tool \
+            --ref main \
+            -f version="$RSSAPI_VERSION"
