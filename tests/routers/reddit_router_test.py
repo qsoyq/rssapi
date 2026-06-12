@@ -10,6 +10,7 @@ def client():
         yield c
 
 
+@pytest.mark.skip(reason="requires live Reddit upstream access")
 def test_reddit_subreddit_posts(client: TestClient):
     response = client.get("/api/rss/reddit/subreddit/python", params={"max_posts": 3})
     assert response.status_code == 200

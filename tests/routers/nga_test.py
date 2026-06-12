@@ -32,9 +32,12 @@ def delay(request):
 
 
 @pytest.mark.nga_delay
+@pytest.mark.skipif(
+    not (os.getenv("ngaPassportCid") and os.getenv("ngaPassportUid") and os.getenv("ngaFavor")),
+    reason="requires NGA credentials and favor id",
+)
 def test_favor_jsonfeed(client: TestClient):
     cid, uid, favor = os.getenv("ngaPassportCid"), os.getenv("ngaPassportUid"), os.getenv("ngaFavor")
-    assert cid and uid and favor, "env ngaPassportCid or ngaPassportUid or ngaFavor not exists"
     params = {"cid": cid, "uid": uid}
 
     response = client.get(f"/api/rss/nga/favor/{favor}", params=params)
@@ -47,9 +50,12 @@ def test_favor_jsonfeed(client: TestClient):
 
 
 @pytest.mark.nga_delay
+@pytest.mark.skipif(
+    not (os.getenv("ngaPassportCid") and os.getenv("ngaPassportUid") and os.getenv("ngaFavor")),
+    reason="requires NGA credentials and favor id",
+)
 def test_threads_jsonfeed(client: TestClient):
-    cid, uid, favor = os.getenv("ngaPassportCid"), os.getenv("ngaPassportUid"), os.getenv("ngaFavor")
-    assert cid and uid and favor, "env ngaPassportCid or ngaPassportUid or ngaFavor not exists"
+    cid, uid = os.getenv("ngaPassportCid"), os.getenv("ngaPassportUid")
 
     response = client.get("/api/rss/nga/threads", params={"fids": [708], "cid": cid, "uid": uid})
     if response.status_code == 504:

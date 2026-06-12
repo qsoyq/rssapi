@@ -7,10 +7,13 @@ from rssapi.utils.nga import NgaToolkit
 
 @pytest.mark.asyncio
 @pytest.mark.nga_delay
+@pytest.mark.skipif(
+    not (os.getenv("ngaPassportCid") and os.getenv("ngaPassportUid")),
+    reason="requires NGA credentials",
+)
 async def test_nga_fetch_thread_detail():
     url = "https://bbs.nga.cn/read.php?tid=44834023"
     cid, uid = os.getenv("ngaPassportCid"), os.getenv("ngaPassportUid")
-    assert cid and uid, "env ngaPassportCid or ngaPassportUid not exists"
     res = await NgaToolkit.fetch_thread_detail(url, cid, uid)
     assert res
     assert res.authorUrl

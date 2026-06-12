@@ -32,6 +32,7 @@ def test_go_fans(client: TestClient):
     assert response.json()["items"]
 
 
+@pytest.mark.skip(reason="requires live Loon upstream access")
 def test_loon(client: TestClient):
     response = client.get(
         "/api/rss/loon/ipx", params={"url_list": ["https://kelee.one/Tool/Loon/Lpx/YouTube_remove_ads.lpx"]}
