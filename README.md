@@ -42,6 +42,8 @@ uv run uvicorn rssapi.main:app --reload
 uv run pytest tests/
 ```
 
+The default test run is intended for CI and skips live upstream integration cases that require private credentials or stable third-party access, such as NGA credentialed requests, Reddit live subreddit fetches, and Loon plugin URLs that can be blocked by upstream anti-bot checks. Re-enable or run those cases locally only when the required credentials and network access are available.
+
 ## Lint and format
 
 ```bash

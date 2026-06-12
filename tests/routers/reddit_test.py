@@ -13,12 +13,14 @@ from rssapi.applications.reddit.utils import (
 
 @pytest.fixture(scope="module")
 def raw_about() -> dict:
+    pytest.skip("requires live Reddit upstream access")
     with RedditClient() as rc:
         return rc.get_subreddit_about("aiyu")
 
 
 @pytest.fixture(scope="module")
 def raw_listing() -> dict:
+    pytest.skip("requires live Reddit upstream access")
     with RedditClient() as rc:
         return rc.get_subreddit("aiyu", limit=5)
 
@@ -220,6 +222,7 @@ class TestBuildFeedItem:
 
 
 class TestFetchSubredditFeed:
+    @pytest.mark.skip(reason="requires live Reddit upstream access")
     def test_returns_about_and_items(self):
         about, items = fetch_subreddit_feed("aiyu", 3, None)
         assert isinstance(about, SubredditAbout)
