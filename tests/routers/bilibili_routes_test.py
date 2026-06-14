@@ -104,3 +104,63 @@ def test_bilibili_user_videos_converts_upstream_error(client: TestClient, monkey
 
     assert response.status_code == 502
     assert "风控校验失败" in response.json()["detail"]
+
+
+def test_bilibili_user_submissions(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(bilibili_router, "fetch_user_submissions_feed_data", mock_fetch_user_feed_data)
+    response = client.get("/api/rss/bilibili/v2/user/4186021", params={"page_size": 2, "use_cache": False})
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["title"] == "初夏ChuXXia 的 Bilibili 投稿"
+    assert data["author"]["url"] == "https://space.bilibili.com/4186021"
+    assert data["items"][0]["url"] == "https://www.bilibili.com/video/BV1xx411c7mD"
+
+
+def test_bilibili_user_submissions_validates_page_size(client: TestClient):
+    response = client.get("/api/rss/bilibili/v2/user/4186021", params={"page_size": 51})
+
+    assert response.status_code == 422
+
+
+def test_bilibili_user_submissions_cookie_from_query(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    received: dict[str, str | None] = {}
+
+    async def mock(mid: int, page_size: int, cookies: str | None = None):
+        received["cookies"] = cookies
+        return await mock_fetch_user_feed_data(mid, page_size)
+
+    monkeypatch.setattr(bilibili_router, "fetch_user_submissions_feed_data", mock)
+    response = client.get(
+        "/api/rss/bilibili/v2/user/4186021",
+        params={"page_size": 2, "use_cache": False, "cookies": "SESSDATA=abc"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert received["cookies"] == "SESSDATA=abc"
+
+
+def test_bilibili_user_submissions_cookie_from_header(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    received: dict[str, str | None] = {}
+
+    async def mock(mid: int, page_size: int, cookies: str | None = None):
+        received["cookies"] = cookies
+        return await mock_fetch_user_feed_data(mid, page_size)
+
+    monkeypatch.setattr(bilibili_router, "fetch_user_submissions_feed_data", mock)
+    response = client.get(
+        "/api/rss/bilibili/v2/user/4186021",
+        params={"page_size": 2, "use_cache": False},
+        headers={"X-Bilibili-Cookie": "SESSDATA=xyz"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert received["cookies"] == "SESSDATA=xyz"
+
+
+def test_bilibili_user_submissions_converts_upstream_error(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(bilibili_router, "fetch_user_submissions_feed_data", mock_fetch_user_feed_error)
+    response = client.get("/api/rss/bilibili/v2/user/4186021", params={"page_size": 2, "use_cache": False})
+
+    assert response.status_code == 502
+    assert "风控校验失败" in response.json()["detail"]
