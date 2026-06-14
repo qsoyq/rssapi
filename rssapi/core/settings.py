@@ -182,6 +182,16 @@ class DouyinSettings(BaseSettings):
     user_feeds_cache_maxsize: int = 4096
 
 
+class BilibiliSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="RSS_BILIBILI_",
+        env_file=".env",
+        extra="ignore",
+    )
+    user_videos_cache_ttl: int = 900
+    user_videos_cache_maxsize: int = 4096
+
+
 class AppSettings(BaseSettings):  # type:ignore
     api_prefix: str = "/api"
     basic_auth_user: str = "root"
@@ -202,6 +212,7 @@ class AppSettings(BaseSettings):  # type:ignore
     nodeseek: NodeseekSettings = NodeseekSettings()
     youtube: YoutubeSettings = YoutubeSettings()
     douyin: DouyinSettings = DouyinSettings()
+    bilibili: BilibiliSettings = BilibiliSettings()
 
     cloud_scraper_verify: bool = False
     # rss
