@@ -1,5 +1,6 @@
 from asyncache import cached
-from fastapi import APIRouter, Path, Query, Request
+from cachetools.keys import hashkey
+from fastapi import APIRouter, Header, Path, Query, Request
 
 from rssapi.applications.bilibili.utils import (
     BILIBILI_FAVICON,
@@ -25,12 +26,22 @@ async def user_videos(
     mid: int = Path(..., description="Bilibili 用户 UID/mid", examples=[4186021]),
     page_size: int = Query(30, ge=1, le=50, description="返回视频数量，默认 30，最大 50"),
     use_cache: bool = Query(True, description="是否从缓存返回"),
+    cookies: str | None = Query(None, description="Bilibili 用户 cookie，用于规避风控（可选）"),
+    x_bilibili_cookie: str | None = Header(None, description="Bilibili 用户 cookie", alias="X-Bilibili-Cookie"),
 ):
-    """获取 Bilibili 用户最新投稿视频的 JSON Feed。"""
+    """获取 Bilibili 用户最新投稿视频的 JSON Feed。
+
+    - cookies 可选，传入后用于携带登录态以规避 Bilibili 风控
+    - 如果 cookies 为空，则从 X-Bilibili-Cookie 头中获取
+    - 两者都为空时仍以匿名方式请求公开投稿
+    """
+    if cookies is None and x_bilibili_cookie is not None:
+        cookies = x_bilibili_cookie
+
     user, items = (
-        await fetch_user_feed_data_by_cache(mid, page_size)
+        await fetch_user_feed_data_by_cache(mid, page_size, cookies)
         if use_cache
-        else await fetch_user_feed_data(mid, page_size)
+        else await fetch_user_feed_data(mid, page_size, cookies)
     )
     user_name = (user or {}).get("name") or str(mid)
     user_sign = (user or {}).get("sign") or ""
@@ -54,6 +65,10 @@ async def user_videos(
     )
 
 
-@cached(RandomTTLCache(settings.bilibili.user_videos_cache_maxsize, settings.bilibili.user_videos_cache_ttl))
-async def fetch_user_feed_data_by_cache(mid: int, page_size: int):
-    return await fetch_user_feed_data(mid, page_size)
+@cached(
+    RandomTTLCache(settings.bilibili.user_videos_cache_maxsize, settings.bilibili.user_videos_cache_ttl),
+    # cookie 只影响请求是否被风控放行，不影响公开投稿内容，故不计入缓存 key
+    key=lambda mid, page_size, cookies=None: hashkey(mid, page_size),
+)
+async def fetch_user_feed_data_by_cache(mid: int, page_size: int, cookies: str | None = None):
+    return await fetch_user_feed_data(mid, page_size, cookies)
