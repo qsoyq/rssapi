@@ -1,6 +1,7 @@
 import hashlib
 import html
 import time
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypedDict, cast
@@ -135,6 +136,18 @@ def sign_wbi_params(params: dict[str, Any], img_key: str, sub_key: str) -> dict[
     return signed
 
 
+async def _get_wbi_keys(client: requests.Session) -> tuple[str, str]:
+    resp = client.get(f"{BILIBILI_API_BASE}/x/web-interface/nav")
+    _raise_for_bilibili_http_error(resp, "wbi keys")
+    # nav 在未登录时返回 code -101，但仍带 wbi_img，故不对 code 报错
+    wbi_img = ((resp.json().get("data") or {}).get("wbi_img")) or {}
+    img_key = _extract_wbi_key(wbi_img.get("img_url") or "")
+    sub_key = _extract_wbi_key(wbi_img.get("sub_url") or "")
+    if not img_key or not sub_key:
+        raise HTTPException(status_code=502, detail="fetch bilibili wbi keys error: missing img/sub key")
+    return img_key, sub_key
+
+
 def _raise_for_bilibili_error(payload: dict[str, Any], upstream: str) -> None:
     code = payload.get("code")
     if code == 0:
@@ -243,6 +256,39 @@ async def fetch_user_videos(client: requests.Session, mid: int, page_size: int) 
     return sorted(deduped.values(), key=lambda video: video.get("created") or 0, reverse=True)[:page_size]
 
 
+# 静态最小值，降低 -352 风控概率；无需真实采集设备指纹
+_DM_IMG_STR = "V2ViR0wgMS4wIChPcGVuR0wgRVMgMi4wIENocm9taXVtKQ"
+_DM_COVER_IMG_STR = "QU5HTEUgKEFwcGxlLCBBcHBsZSBNMSBQcm8sIE9wZW5HTCA0LjEpR29vZ2xlIEluYy4gKEFwcGxlKQ"
+_DM_IMG_INTER = '{"ds":[],"wh":[0,0,0],"of":[0,0,0]}'
+
+
+async def fetch_user_submissions(client: requests.Session, mid: int, page_size: int) -> list[dict[str, Any]]:
+    """通过 WBI 签名的 /x/space/wbi/arc/search 拉取用户完整投稿列表。"""
+    img_key, sub_key = await _get_wbi_keys(client)
+    params = sign_wbi_params(
+        {
+            "mid": mid,
+            "ps": page_size,
+            "pn": 1,
+            "order": "pubdate",
+            "platform": "web",
+            "web_location": 1550101,
+            "dm_img_list": "[]",
+            "dm_img_str": _DM_IMG_STR,
+            "dm_cover_img_str": _DM_COVER_IMG_STR,
+            "dm_img_inter": _DM_IMG_INTER,
+        },
+        img_key,
+        sub_key,
+    )
+    resp = client.get(f"{BILIBILI_API_BASE}/x/space/wbi/arc/search", params=params)
+    _raise_for_bilibili_http_error(resp, "user submissions")
+    payload = resp.json()
+    _raise_for_bilibili_error(payload, "user submissions")
+    vlist = (((payload.get("data") or {}).get("list") or {}).get("vlist")) or []
+    return cast(list[dict[str, Any]], vlist)[:page_size]
+
+
 def video_to_jsonfeed_item(video: dict[str, Any], author: JSONFeedAuthor) -> JSONFeedItem:
     bvid = video.get("bvid") or f"av{video.get('aid')}"
     video_url = f"https://www.bilibili.com/video/{bvid}"
@@ -277,8 +323,15 @@ def video_to_jsonfeed_item(video: dict[str, Any], author: JSONFeedAuthor) -> JSO
     )
 
 
+VideoFetcher = Callable[[requests.Session, int, int], Awaitable[list[dict[str, Any]]]]
+
+
 async def fetch_user_feed_data(
-    mid: int, page_size: int, cookies: str | None = None
+    mid: int,
+    page_size: int,
+    cookies: str | None = None,
+    *,
+    fetch_videos: VideoFetcher = fetch_user_videos,
 ) -> tuple[BilibiliUserInfo | None, list[JSONFeedItem]]:
     headers = {**BILIBILI_HEADERS, "Referer": f"{BILIBILI_SPACE_BASE}/{mid}/video"}
     if cookies:
@@ -292,5 +345,12 @@ async def fetch_user_feed_data(
                 "avatar": (user or {}).get("face") or None,
             }
         )
-        videos = await fetch_user_videos(client, mid, page_size)
+        videos = await fetch_videos(client, mid, page_size)
         return user, [video_to_jsonfeed_item(video, author) for video in videos]
+
+
+async def fetch_user_submissions_feed_data(
+    mid: int, page_size: int, cookies: str | None = None
+) -> tuple[BilibiliUserInfo | None, list[JSONFeedItem]]:
+    """完整投稿列表 feed：基于 WBI /x/space/wbi/arc/search。"""
+    return await fetch_user_feed_data(mid, page_size, cookies, fetch_videos=fetch_user_submissions)
