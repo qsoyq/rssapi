@@ -277,8 +277,12 @@ def video_to_jsonfeed_item(video: dict[str, Any], author: JSONFeedAuthor) -> JSO
     )
 
 
-async def fetch_user_feed_data(mid: int, page_size: int) -> tuple[BilibiliUserInfo | None, list[JSONFeedItem]]:
+async def fetch_user_feed_data(
+    mid: int, page_size: int, cookies: str | None = None
+) -> tuple[BilibiliUserInfo | None, list[JSONFeedItem]]:
     headers = {**BILIBILI_HEADERS, "Referer": f"{BILIBILI_SPACE_BASE}/{mid}/video"}
+    if cookies:
+        headers["Cookie"] = cookies
     with requests.Session(headers=headers, timeout=30, impersonate="chrome136") as client:
         user = await fetch_user_info(client, mid)
         author = JSONFeedAuthor.model_validate(
