@@ -3,6 +3,8 @@ from fastapi import HTTPException
 
 from rssapi.applications.bilibili.utils import (
     BILIBILI_API_BASE,
+    _extract_playable_url_from_playurl_data,
+    _extract_video_cid,
     _extract_wbi_key,
     _raise_for_bilibili_error,
     fetch_user_submissions,
@@ -64,6 +66,76 @@ def test_video_to_jsonfeed_item():
     assert item.date_published == "2024-03-09T16:00:00+00:00"
     assert item.author == author
     assert "播放: 100" in (item.content_html or "")
+    assert "<video" not in (item.content_html or "")
+    assert '<img src="https://i0.hdslb.com/bfs/archive/cover.jpg"' in (item.content_html or "")
+
+
+def test_video_to_jsonfeed_item_renders_playable_video():
+    author = JSONFeedAuthor.model_validate({"name": "小镇阿橙", "url": "https://space.bilibili.com/507243527"})
+    item = video_to_jsonfeed_item(
+        {
+            "aid": 123,
+            "bvid": "BV1gGjB6qEnR",
+            "title": "终于提车了，天天跑，油也贵了换成电车",
+            "description": "测试简介",
+            "pic": "//i2.hdslb.com/bfs/archive/cover.jpg",
+            "created": 1781887930,
+            "length": "10:36",
+            "playable_url": "http://upos-sz-mirror.example.com/video.mp4?token=abc&deadline=1781890000",
+        },
+        author,
+    )
+
+    content_html = item.content_html or ""
+    assert "<video " in content_html
+    assert "controls" in content_html
+    assert 'preload="metadata"' in content_html
+    assert 'src="https://upos-sz-mirror.example.com/video.mp4?token=abc&amp;deadline=1781890000"' in content_html
+    assert 'poster="https://i2.hdslb.com/bfs/archive/cover.jpg"' in content_html
+    assert "<img " not in content_html
+    assert "SESSDATA" not in content_html
+
+
+def test_extract_video_cid_prefers_video_field():
+    assert _extract_video_cid({"cid": 100}, {"cid": 200}) == 100
+
+
+def test_extract_video_cid_from_view_pages():
+    assert _extract_video_cid({}, {"pages": [{"cid": 300}]}) == 300
+
+
+def test_extract_playable_url_from_durl():
+    assert (
+        _extract_playable_url_from_playurl_data(
+            {
+                "durl": [
+                    {
+                        "url": "http://upos-sz-mirror.example.com/video.mp4",
+                        "backup_url": ["https://backup.example.com/video.mp4"],
+                    }
+                ]
+            }
+        )
+        == "https://upos-sz-mirror.example.com/video.mp4"
+    )
+
+
+def test_extract_playable_url_from_dash_video_fallback():
+    assert (
+        _extract_playable_url_from_playurl_data(
+            {
+                "dash": {
+                    "video": [
+                        {
+                            "base_url": "",
+                            "backup_url": ["//upos-sz-mirror.example.com/video.m4s"],
+                        }
+                    ]
+                }
+            }
+        )
+        == "https://upos-sz-mirror.example.com/video.m4s"
+    )
 
 
 def test_raise_for_bilibili_error():

@@ -289,12 +289,138 @@ async def fetch_user_submissions(client: requests.Session, mid: int, page_size: 
     return cast(list[dict[str, Any]], vlist)[:page_size]
 
 
+def _video_identifier_params(video: dict[str, Any]) -> dict[str, Any]:
+    bvid = video.get("bvid")
+    if bvid:
+        return {"bvid": bvid}
+    aid = video.get("aid")
+    if aid:
+        return {"avid": aid}
+    return {}
+
+
+def _extract_video_cid(video: dict[str, Any], view_data: dict[str, Any] | None = None) -> int | str | None:
+    cid = video.get("cid")
+    if cid not in (None, ""):
+        return cast(int | str, cid)
+
+    if not view_data:
+        return None
+
+    cid = view_data.get("cid")
+    if cid not in (None, ""):
+        return cast(int | str, cid)
+
+    pages = view_data.get("pages") or []
+    if not pages:
+        return None
+    first_page = pages[0] or {}
+    cid = first_page.get("cid")
+    if cid in (None, ""):
+        return None
+    return cast(int | str, cid)
+
+
+def _extract_playable_url_from_playurl_data(playurl_data: dict[str, Any]) -> str | None:
+    for entry in playurl_data.get("durl") or []:
+        url = normalize_url(entry.get("url"))
+        if url:
+            return url
+        for backup_url in entry.get("backup_url") or []:
+            url = normalize_url(backup_url)
+            if url:
+                return url
+
+    dash = playurl_data.get("dash") or {}
+    for entry in dash.get("video") or []:
+        url = normalize_url(entry.get("baseUrl") or entry.get("base_url"))
+        if url:
+            return url
+        for backup_url in entry.get("backupUrl") or entry.get("backup_url") or []:
+            url = normalize_url(backup_url)
+            if url:
+                return url
+    return None
+
+
+async def fetch_playable_video_url(client: requests.Session, video: dict[str, Any]) -> str | None:
+    playable_url = normalize_url(video.get("playable_url") or video.get("video_url") or video.get("src"))
+    if playable_url:
+        return playable_url
+
+    identifier_params = _video_identifier_params(video)
+    if not identifier_params:
+        return None
+
+    cid = _extract_video_cid(video)
+    if cid is None:
+        resp = client.get(f"{BILIBILI_API_BASE}/x/web-interface/view", params=identifier_params)
+        _raise_for_bilibili_http_error(resp, "video view")
+        payload = resp.json()
+        _raise_for_bilibili_error(payload, "video view")
+        cid = _extract_video_cid(video, payload.get("data") or {})
+    if cid is None:
+        return None
+
+    resp = client.get(
+        f"{BILIBILI_API_BASE}/x/player/playurl",
+        params={
+            **identifier_params,
+            "cid": cid,
+            "qn": 80,
+            "fnval": 0,
+            "fourk": 0,
+            "platform": "html5",
+            "high_quality": 1,
+            "otype": "json",
+        },
+    )
+    _raise_for_bilibili_http_error(resp, "video playurl")
+    payload = resp.json()
+    _raise_for_bilibili_error(payload, "video playurl")
+    return _extract_playable_url_from_playurl_data(payload.get("data") or payload.get("result") or {})
+
+
+async def _attach_playable_video_urls(
+    client: requests.Session,
+    videos: list[dict[str, Any]],
+    fetch_playable_url: Callable[[requests.Session, dict[str, Any]], Awaitable[str | None]],
+) -> list[dict[str, Any]]:
+    enriched = []
+    for video in videos:
+        item = {**video}
+        try:
+            playable_url = await fetch_playable_url(client, item)
+        except (HTTPException, requests.RequestsError):
+            playable_url = None
+        if playable_url:
+            item["playable_url"] = playable_url
+        enriched.append(item)
+    return enriched
+
+
+def _build_video_media_html(playable_url: str | None, cover: str | None, title: str) -> str:
+    if playable_url:
+        attrs = [
+            "controls",
+            'preload="metadata"',
+            f'src="{html.escape(playable_url, quote=True)}"',
+        ]
+        if cover:
+            attrs.append(f'poster="{html.escape(cover, quote=True)}"')
+        return f"<p><video {' '.join(attrs)}>{title}</video></p>"
+    if cover:
+        return f'<p><img src="{html.escape(cover, quote=True)}" alt="{title}" /></p>'
+    return ""
+
+
 def video_to_jsonfeed_item(video: dict[str, Any], author: JSONFeedAuthor) -> JSONFeedItem:
     bvid = video.get("bvid") or f"av{video.get('aid')}"
     video_url = f"https://www.bilibili.com/video/{bvid}"
     cover = normalize_url(video.get("pic"))
     description = html.escape(video.get("description") or "")
     title = html.escape(video.get("title") or bvid)
+    playable_url = normalize_url(video.get("playable_url"))
     stats = [
         ("播放", video.get("play")),
         ("弹幕", video.get("video_review")),
@@ -304,9 +430,9 @@ def video_to_jsonfeed_item(video: dict[str, Any], author: JSONFeedAuthor) -> JSO
     stats_html = "".join(
         f"<li>{name}: {html.escape(str(value))}</li>" for name, value in stats if value not in (None, "")
     )
-    image_html = f'<p><img src="{html.escape(cover)}" alt="{title}" /></p>' if cover else ""
+    media_html = _build_video_media_html(playable_url, cover, title)
     content_html = (
-        f'{image_html}<p>{description}</p><ul>{stats_html}</ul><p><a href="{video_url}">在 Bilibili 查看</a></p>'
+        f'{media_html}<p>{description}</p><ul>{stats_html}</ul><p><a href="{video_url}">在 Bilibili 查看</a></p>'
     )
 
     return JSONFeedItem.model_validate(
@@ -324,6 +450,7 @@ def video_to_jsonfeed_item(video: dict[str, Any], author: JSONFeedAuthor) -> JSO
 
 
 VideoFetcher = Callable[[requests.Session, int, int], Awaitable[list[dict[str, Any]]]]
+PlayableVideoUrlFetcher = Callable[[requests.Session, dict[str, Any]], Awaitable[str | None]]
 
 
 async def fetch_user_feed_data(
@@ -332,6 +459,7 @@ async def fetch_user_feed_data(
     cookies: str | None = None,
     *,
     fetch_videos: VideoFetcher = fetch_user_videos,
+    fetch_playable_url: PlayableVideoUrlFetcher | None = None,
 ) -> tuple[BilibiliUserInfo | None, list[JSONFeedItem]]:
     headers = {**BILIBILI_HEADERS, "Referer": f"{BILIBILI_SPACE_BASE}/{mid}/video"}
     if cookies:
@@ -346,6 +474,8 @@ async def fetch_user_feed_data(
             }
         )
         videos = await fetch_videos(client, mid, page_size)
+        if fetch_playable_url:
+            videos = await _attach_playable_video_urls(client, videos, fetch_playable_url)
         return user, [video_to_jsonfeed_item(video, author) for video in videos]
 
 
@@ -353,4 +483,10 @@ async def fetch_user_submissions_feed_data(
     mid: int, page_size: int, cookies: str | None = None
 ) -> tuple[BilibiliUserInfo | None, list[JSONFeedItem]]:
     """完整投稿列表 feed：基于 WBI /x/space/wbi/arc/search。"""
-    return await fetch_user_feed_data(mid, page_size, cookies, fetch_videos=fetch_user_submissions)
+    return await fetch_user_feed_data(
+        mid,
+        page_size,
+        cookies,
+        fetch_videos=fetch_user_submissions,
+        fetch_playable_url=fetch_playable_video_url,
+    )
