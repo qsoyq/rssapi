@@ -242,7 +242,6 @@ def test_bilibili_media_proxies_range_with_video_referer(client: TestClient, mon
 
     class UpstreamResponse:
         status_code = 206
-        text = ""
         headers = {
             "content-type": "video/mp4",
             "content-length": "4",
@@ -250,23 +249,36 @@ def test_bilibili_media_proxies_range_with_video_referer(client: TestClient, mon
             "accept-ranges": "bytes",
         }
 
-        def iter_content(self, chunk_size: int):
+        async def aiter_bytes(self, chunk_size: int):
             received["chunk_size"] = str(chunk_size)
             yield b"test"
 
-        def close(self):
-            received["closed"] = True
+        async def aread(self):
+            return b""
 
-    def get(playable_url: str, headers: dict[str, str], timeout: int, impersonate: str, stream: bool):
-        received["playable_url"] = playable_url
-        received["headers"] = headers
-        received["timeout"] = str(timeout)
-        received["impersonate"] = impersonate
-        received["stream"] = stream
-        return UpstreamResponse()
+        async def aclose(self):
+            received["response_closed"] = True
+
+    class AsyncClient:
+        def __init__(self, timeout, follow_redirects: bool):
+            received["timeout"] = str(timeout)
+            received["follow_redirects"] = follow_redirects
+
+        def build_request(self, method: str, playable_url: str, headers: dict[str, str]):
+            received["method"] = method
+            received["playable_url"] = playable_url
+            received["headers"] = headers
+            return {"method": method, "url": playable_url, "headers": headers}
+
+        async def send(self, request, stream: bool):
+            received["stream"] = stream
+            return UpstreamResponse()
+
+        async def aclose(self):
+            received["client_closed"] = True
 
     monkeypatch.setattr(bilibili_router, "fetch_playable_video_url", fetch_playable_video_url)
-    monkeypatch.setattr(bilibili_router.requests, "get", get)
+    monkeypatch.setattr(bilibili_router.httpx, "AsyncClient", AsyncClient)
 
     response = client.get("/api/rss/bilibili/media/BV1xx411c7mD", headers={"Range": "bytes=0-3"})
 
@@ -280,5 +292,8 @@ def test_bilibili_media_proxies_range_with_video_referer(client: TestClient, mon
     assert isinstance(headers, dict)
     assert headers["Referer"] == "https://www.bilibili.com/video/BV1xx411c7mD"
     assert headers["Range"] == "bytes=0-3"
+    assert received["method"] == "GET"
     assert received["stream"] is True
-    assert received["closed"] is True
+    assert received["follow_redirects"] is True
+    assert received["response_closed"] is True
+    assert received["client_closed"] is True

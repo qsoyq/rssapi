@@ -2,6 +2,7 @@ import html
 import re
 from typing import Any, cast
 
+import httpx
 from asyncache import cached
 from cachetools.keys import hashkey
 from curl_cffi import requests
@@ -112,16 +113,12 @@ async def media(
     upstream_headers = {**headers}
     if range_header:
         upstream_headers["Range"] = range_header
-    upstream = requests.get(
-        playable_url,
-        headers=upstream_headers,
-        timeout=30,
-        impersonate="chrome136",
-        stream=True,
-    )
+
+    upstream_client, upstream = await _open_upstream_media(playable_url, upstream_headers)
     if upstream.status_code >= 400:
-        detail = upstream.text
-        upstream.close()
+        detail = (await upstream.aread()).decode(errors="replace")
+        await upstream.aclose()
+        await upstream_client.aclose()
         raise HTTPException(status_code=upstream.status_code, detail=detail)
 
     response_headers = {
@@ -132,13 +129,14 @@ async def media(
     response_headers["Cache-Control"] = "no-store"
     media_type = upstream.headers.get("content-type") or "video/mp4"
 
-    def iter_content():
+    async def iter_content():
         try:
-            for chunk in upstream.iter_content(chunk_size=1024 * 256):
+            async for chunk in upstream.aiter_bytes(chunk_size=1024 * 256):
                 if chunk:
                     yield chunk
         finally:
-            upstream.close()
+            await upstream.aclose()
+            await upstream_client.aclose()
 
     return StreamingResponse(
         iter_content(),
@@ -146,6 +144,20 @@ async def media(
         headers=response_headers,
         media_type=media_type,
     )
+
+
+async def _open_upstream_media(playable_url: str, headers: dict[str, str]):
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0),
+        follow_redirects=True,
+    )
+    request = client.build_request("GET", playable_url, headers=headers)
+    try:
+        response = await client.send(request, stream=True)
+    except Exception:
+        await client.aclose()
+        raise
+    return client, response
 
 
 def _build_user_feed(req: Request, mid: int, user, items) -> JSONFeed:
