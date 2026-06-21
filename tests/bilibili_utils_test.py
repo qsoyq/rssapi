@@ -333,6 +333,37 @@ async def test_fetch_playable_video_url_uses_html5_playurl_fallback(caplog: pyte
 
 
 @pytest.mark.asyncio
+async def test_fetch_playable_video_url_uses_html5_playurl_when_wbi_playurl_is_rejected(
+    caplog: pytest.LogCaptureFixture,
+):
+    view = _FakeResponse(200, {"code": 0, "data": {"pages": [{"cid": 987}]}})
+    playurl = _FakeResponse(412, {}, text="request rejected")
+    html5_playurl = _FakeResponse(
+        200,
+        {
+            "code": 0,
+            "data": {
+                "durl": [
+                    {
+                        "url": "http://upos-sz-mirror.example.com/html5-video.mp4",
+                    }
+                ]
+            },
+        },
+    )
+    client = _FakePlayableClient(_NAV_OK, view, playurl, html5_playurl)
+
+    with caplog.at_level(logging.WARNING, logger="rssapi.applications.bilibili.utils"):
+        playable_url = await fetch_playable_video_url(client, {"bvid": "BV1gGjB6qEnR"})
+
+    assert playable_url == "https://upos-sz-mirror.example.com/html5-video.mp4"
+    assert client.html5_playurl_params
+    assert "bilibili upstream http error: upstream=video playurl status_code=412" in caplog.text
+    assert "bilibili wbi playurl fallback to html5" in caplog.text
+    assert "video=BV1gGjB6qEnR" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_fetch_playable_video_url_logs_missing_html5_durl(caplog: pytest.LogCaptureFixture):
     view = _FakeResponse(200, {"code": 0, "data": {"pages": [{"cid": 987}]}})
     playurl = _FakeResponse(

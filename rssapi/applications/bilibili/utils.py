@@ -384,30 +384,36 @@ async def fetch_playable_video_url(client: requests.Session, video: dict[str, An
         img_key,
         sub_key,
     )
-    resp = client.get(
-        f"{BILIBILI_API_BASE}/x/player/wbi/playurl",
-        params=params,
-    )
-    _raise_for_bilibili_http_error(resp, "video playurl")
-    payload = resp.json()
-    if payload.get("code") != 0:
-        logger.warning(
-            f"bilibili video playurl failed: video={video_id} cid={cid} code={payload.get('code')} "
-            f"message={payload.get('message')}"
+    try:
+        resp = client.get(
+            f"{BILIBILI_API_BASE}/x/player/wbi/playurl",
+            params=params,
         )
-    _raise_for_bilibili_error(payload, "video playurl")
-    playurl_data = payload.get("data") or payload.get("result") or {}
-    playable_url = _extract_playable_url_from_playurl_data(playurl_data)
-    if playable_url:
-        logger.info(f"bilibili playable url resolved: video={video_id} cid={cid}")
-        return playable_url
+        _raise_for_bilibili_http_error(resp, "video playurl")
+        payload = resp.json()
+        if payload.get("code") != 0:
+            logger.warning(
+                f"bilibili video playurl failed: video={video_id} cid={cid} code={payload.get('code')} "
+                f"message={payload.get('message')}"
+            )
+        _raise_for_bilibili_error(payload, "video playurl")
+        playurl_data = payload.get("data") or payload.get("result") or {}
+        playable_url = _extract_playable_url_from_playurl_data(playurl_data)
+        if playable_url:
+            logger.info(f"bilibili playable url resolved: video={video_id} cid={cid}")
+            return playable_url
 
-    dash = playurl_data.get("dash") or {}
-    logger.warning(
-        f"bilibili wbi playurl missing durl: video={video_id} cid={cid} "
-        f"durl_count={len(playurl_data.get('durl') or [])} "
-        f"dash_video_count={len(dash.get('video') or [])} dash_audio_count={len(dash.get('audio') or [])}"
-    )
+        dash = playurl_data.get("dash") or {}
+        logger.warning(
+            f"bilibili wbi playurl missing durl: video={video_id} cid={cid} "
+            f"durl_count={len(playurl_data.get('durl') or [])} "
+            f"dash_video_count={len(dash.get('video') or [])} dash_audio_count={len(dash.get('audio') or [])}"
+        )
+    except HTTPException as exc:
+        logger.warning(
+            f"bilibili wbi playurl fallback to html5: video={video_id} cid={cid} "
+            f"status_code={exc.status_code} detail={exc.detail}"
+        )
 
     resp = client.get(
         f"{BILIBILI_API_BASE}/x/player/playurl",
