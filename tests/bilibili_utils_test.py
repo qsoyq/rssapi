@@ -1,10 +1,13 @@
 import logging
+import threading
+import time
 
 import pytest
 from fastapi import HTTPException
 
 from rssapi.applications.bilibili.utils import (
     BILIBILI_API_BASE,
+    _attach_playable_video_urls,
     _extract_playable_url_from_playurl_data,
     _extract_video_cid,
     _extract_wbi_key,
@@ -388,6 +391,43 @@ async def test_fetch_playable_video_url_logs_missing_html5_durl(caplog: pytest.L
     assert "bilibili html5 playable url missing durl" in caplog.text
     assert "video=BV1gGjB6qEnR" in caplog.text
     assert "durl_count=0" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_attach_playable_video_urls_resolves_with_bounded_concurrency():
+    lock = threading.Lock()
+    active_count = 0
+    max_active_count = 0
+    resolved_video_ids = []
+
+    async def fetch_playable_url(_client, video: dict):
+        nonlocal active_count, max_active_count
+        with lock:
+            active_count += 1
+            max_active_count = max(max_active_count, active_count)
+        time.sleep(0.05)
+        with lock:
+            active_count -= 1
+            resolved_video_ids.append(video["bvid"])
+        return f"https://upos-sz-mirror.example.com/{video['bvid']}.mp4"
+
+    videos = [{"bvid": "BV1aa"}, {"bvid": "BV1bb"}, {"bvid": "BV1cc"}]
+
+    resolved_videos = await _attach_playable_video_urls(
+        {},
+        videos,
+        fetch_playable_url,
+        concurrency=2,
+    )
+
+    assert [video["bvid"] for video in resolved_videos] == ["BV1aa", "BV1bb", "BV1cc"]
+    assert [video["playable_url"] for video in resolved_videos] == [
+        "https://upos-sz-mirror.example.com/BV1aa.mp4",
+        "https://upos-sz-mirror.example.com/BV1bb.mp4",
+        "https://upos-sz-mirror.example.com/BV1cc.mp4",
+    ]
+    assert max_active_count == 2
+    assert sorted(resolved_video_ids) == ["BV1aa", "BV1bb", "BV1cc"]
 
 
 @pytest.mark.asyncio

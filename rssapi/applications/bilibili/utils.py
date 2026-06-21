@@ -1,8 +1,9 @@
+import asyncio
 import hashlib
 import html
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypedDict, cast
@@ -12,6 +13,7 @@ from curl_cffi import requests
 from fastapi import HTTPException
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedAuthor, JSONFeedItem
+from rssapi.core.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -452,16 +454,31 @@ async def fetch_playable_video_url(client: requests.Session, video: dict[str, An
     return None
 
 
-async def _attach_playable_video_urls(
-    client: requests.Session,
-    videos: list[dict[str, Any]],
+def _fetch_playable_video_url_in_thread(
+    headers: dict[str, str],
+    video: dict[str, Any],
     fetch_playable_url: Callable[[requests.Session, dict[str, Any]], Awaitable[str | None]],
-) -> list[dict[str, Any]]:
-    enriched = []
-    for video in videos:
-        item = {**video}
+) -> str | None:
+    with requests.Session(headers=headers, timeout=30, impersonate="chrome136") as client:
+        coroutine = cast(Coroutine[Any, Any, str | None], fetch_playable_url(client, video))
+        return asyncio.run(coroutine)
+
+
+async def _resolve_playable_video_url(
+    headers: dict[str, str],
+    video: dict[str, Any],
+    fetch_playable_url: Callable[[requests.Session, dict[str, Any]], Awaitable[str | None]],
+    semaphore: asyncio.Semaphore,
+) -> dict[str, Any]:
+    item = {**video}
+    async with semaphore:
         try:
-            playable_url = await fetch_playable_url(client, item)
+            playable_url = await asyncio.to_thread(
+                _fetch_playable_video_url_in_thread,
+                headers,
+                item,
+                fetch_playable_url,
+            )
         except HTTPException as exc:
             logger.warning(
                 f"bilibili playable url fallback: video={_video_debug_id(item)} "
@@ -475,8 +492,21 @@ async def _attach_playable_video_urls(
             item["playable_url"] = playable_url
         else:
             logger.warning(f"bilibili feed item uses image fallback: video={_video_debug_id(item)}")
-        enriched.append(item)
-    return enriched
+    return item
+
+
+async def _attach_playable_video_urls(
+    headers: dict[str, str],
+    videos: list[dict[str, Any]],
+    fetch_playable_url: Callable[[requests.Session, dict[str, Any]], Awaitable[str | None]],
+    concurrency: int,
+) -> list[dict[str, Any]]:
+    concurrency = max(1, concurrency)
+    semaphore = asyncio.Semaphore(concurrency)
+    logger.info(f"bilibili playable url fetch concurrency: concurrency={concurrency} video_count={len(videos)}")
+    return await asyncio.gather(
+        *(_resolve_playable_video_url(headers, video, fetch_playable_url, semaphore) for video in videos)
+    )
 
 
 def _build_video_media_html(playable_url: str | None, cover: str | None, title: str) -> str:
@@ -580,7 +610,12 @@ async def fetch_user_feed_data(
         )
         videos = await fetch_videos(client, mid, page_size)
         if fetch_playable_url:
-            videos = await _attach_playable_video_urls(client, videos, fetch_playable_url)
+            videos = await _attach_playable_video_urls(
+                headers,
+                videos,
+                fetch_playable_url,
+                settings.bilibili.playable_url_fetch_concurrency,
+            )
         return user, [video_to_jsonfeed_item(video, author) for video in videos]
 
 

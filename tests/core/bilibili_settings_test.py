@@ -14,3 +14,14 @@ class TestBilibiliSettings:
         settings = BilibiliSettings()
 
         assert settings.media_url_template == "https://example.org/api/bilibili/video/{bvid}"
+
+    def test_playable_url_fetch_concurrency_default(self):
+        settings = BilibiliSettings()
+
+        assert settings.playable_url_fetch_concurrency == 5
+
+    def test_playable_url_fetch_concurrency_from_env(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("RSS_BILIBILI_PLAYABLE_URL_FETCH_CONCURRENCY", "3")
+        settings = BilibiliSettings()
+
+        assert settings.playable_url_fetch_concurrency == 3

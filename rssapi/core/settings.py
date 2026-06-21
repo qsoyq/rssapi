@@ -191,6 +191,7 @@ class BilibiliSettings(BaseSettings):
     user_videos_cache_ttl: int = 900
     user_videos_cache_maxsize: int = 4096
     media_url_template: str | None = None
+    playable_url_fetch_concurrency: int = 5
 
 
 class AppSettings(BaseSettings):  # type:ignore
