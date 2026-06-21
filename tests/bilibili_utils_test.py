@@ -1,10 +1,18 @@
+import logging
+import threading
+import time
+
 import pytest
 from fastapi import HTTPException
 
 from rssapi.applications.bilibili.utils import (
     BILIBILI_API_BASE,
+    _attach_playable_video_urls,
+    _extract_playable_url_from_playurl_data,
+    _extract_video_cid,
     _extract_wbi_key,
     _raise_for_bilibili_error,
+    fetch_playable_video_url,
     fetch_user_submissions,
     format_duration,
     normalize_url,
@@ -64,6 +72,85 @@ def test_video_to_jsonfeed_item():
     assert item.date_published == "2024-03-09T16:00:00+00:00"
     assert item.author == author
     assert "播放: 100" in (item.content_html or "")
+    assert "<video" not in (item.content_html or "")
+    assert '<img src="https://i0.hdslb.com/bfs/archive/cover.jpg"' in (item.content_html or "")
+
+
+def test_video_to_jsonfeed_item_renders_playable_video():
+    author = JSONFeedAuthor.model_validate({"name": "小镇阿橙", "url": "https://space.bilibili.com/507243527"})
+    item = video_to_jsonfeed_item(
+        {
+            "aid": 123,
+            "bvid": "BV1gGjB6qEnR",
+            "title": "终于提车了，天天跑，油也贵了换成电车",
+            "description": "测试简介",
+            "pic": "//i2.hdslb.com/bfs/archive/cover.jpg",
+            "created": 1781887930,
+            "length": "10:36",
+            "playable_url": "http://upos-sz-mirror.example.com/video.mp4?token=abc&deadline=1781890000",
+        },
+        author,
+    )
+
+    content_html = item.content_html or ""
+    assert "<video " in content_html
+    assert "controls" in content_html
+    assert 'preload="metadata"' in content_html
+    assert 'src="https://upos-sz-mirror.example.com/video.mp4?token=abc&amp;deadline=1781890000"' in content_html
+    assert 'poster="https://i2.hdslb.com/bfs/archive/cover.jpg"' in content_html
+    assert "视频 CDN 直链（无需 cookies，需要 Bilibili Referer）" in content_html
+    assert 'href="https://upos-sz-mirror.example.com/video.mp4?token=abc&amp;deadline=1781890000"' in content_html
+    assert "播放请求 Referer:" in content_html
+    assert "<code>https://www.bilibili.com/video/BV1gGjB6qEnR</code>" in content_html
+    assert "<img " not in content_html
+    assert "SESSDATA" not in content_html
+    assert item.attachments
+    assert str(item.attachments[0].url) == "https://upos-sz-mirror.example.com/video.mp4?token=abc&deadline=1781890000"
+    assert item.attachments[0].mime_type == "video/mp4"
+    assert item.attachments[0].title == "视频 CDN 直链（无需 cookies，需要 Bilibili Referer）"
+
+
+def test_extract_video_cid_prefers_video_field():
+    assert _extract_video_cid({"cid": 100}, {"cid": 200}) == 100
+
+
+def test_extract_video_cid_from_view_pages():
+    assert _extract_video_cid({}, {"pages": [{"cid": 300}]}) == 300
+
+
+def test_extract_playable_url_from_durl():
+    assert (
+        _extract_playable_url_from_playurl_data(
+            {
+                "durl": [
+                    {
+                        "url": "http://upos-sz-mirror.example.com/video.mp4",
+                        "backup_url": ["https://backup.example.com/video.mp4"],
+                    }
+                ]
+            }
+        )
+        == "https://upos-sz-mirror.example.com/video.mp4"
+    )
+
+
+def test_extract_playable_url_does_not_use_dash_video_only_url():
+    assert (
+        _extract_playable_url_from_playurl_data(
+            {
+                "dash": {
+                    "video": [
+                        {
+                            "base_url": "https://upos-sz-mirror.example.com/video.m4s",
+                            "backup_url": ["//upos-sz-mirror.example.com/video-backup.m4s"],
+                        }
+                    ],
+                    "audio": [{"base_url": "https://upos-sz-mirror.example.com/audio.m4s"}],
+                }
+            }
+        )
+        is None
+    )
 
 
 def test_raise_for_bilibili_error():
@@ -128,6 +215,47 @@ class _FakeClient:
         raise AssertionError(f"unexpected url: {url}")
 
 
+class _FakePlayableClient:
+    """按 URL 分派的假 curl_cffi 会话，用于验证 WBI playurl 解析。"""
+
+    def __init__(
+        self,
+        nav: _FakeResponse,
+        view: _FakeResponse,
+        playurl: _FakeResponse,
+        html5_playurl: _FakeResponse | None = None,
+    ):
+        self._nav = nav
+        self._view = view
+        self._playurl = playurl
+        self._html5_playurl = html5_playurl
+        self.playurl_params = None
+        self.html5_playurl_params = None
+
+    def get(self, url: str, params=None):
+        if url.endswith("/x/web-interface/view"):
+            return self._view
+        if url.endswith("/x/web-interface/nav"):
+            return self._nav
+        if url.endswith("/x/player/wbi/playurl"):
+            self.playurl_params = params
+            assert params and "w_rid" in params and "wts" in params
+            assert params["bvid"] == "BV1gGjB6qEnR"
+            assert params["cid"] == 987
+            assert params["fnval"] == 4048
+            assert params["try_look"] == 1
+            return self._playurl
+        if url.endswith("/x/player/playurl"):
+            self.html5_playurl_params = params
+            assert self._html5_playurl
+            assert params["bvid"] == "BV1gGjB6qEnR"
+            assert params["cid"] == 987
+            assert params["fnval"] == 0
+            assert params["platform"] == "html5"
+            return self._html5_playurl
+        raise AssertionError(f"unexpected url: {url}")
+
+
 _NAV_OK = _FakeResponse(
     200,
     {
@@ -140,6 +268,166 @@ _NAV_OK = _FakeResponse(
         },
     },
 )
+
+
+@pytest.mark.asyncio
+async def test_fetch_playable_video_url_uses_wbi_playurl():
+    view = _FakeResponse(200, {"code": 0, "data": {"pages": [{"cid": 987}]}})
+    playurl = _FakeResponse(
+        200,
+        {
+            "code": 0,
+            "data": {
+                "durl": [
+                    {
+                        "url": "http://upos-sz-mirror.example.com/video.mp4",
+                    }
+                ]
+            },
+        },
+    )
+    client = _FakePlayableClient(_NAV_OK, view, playurl)
+
+    playable_url = await fetch_playable_video_url(client, {"bvid": "BV1gGjB6qEnR"})
+
+    assert playable_url == "https://upos-sz-mirror.example.com/video.mp4"
+    assert client.playurl_params
+
+
+@pytest.mark.asyncio
+async def test_fetch_playable_video_url_uses_html5_playurl_fallback(caplog: pytest.LogCaptureFixture):
+    view = _FakeResponse(200, {"code": 0, "data": {"pages": [{"cid": 987}]}})
+    playurl = _FakeResponse(
+        200,
+        {
+            "code": 0,
+            "data": {
+                "dash": {
+                    "video": [{"base_url": "https://upos-sz-mirror.example.com/video.m4s"}],
+                    "audio": [{"base_url": "https://upos-sz-mirror.example.com/audio.m4s"}],
+                }
+            },
+        },
+    )
+    html5_playurl = _FakeResponse(
+        200,
+        {
+            "code": 0,
+            "data": {
+                "durl": [
+                    {
+                        "url": "http://upos-sz-mirror.example.com/html5-video.mp4",
+                    }
+                ]
+            },
+        },
+    )
+    client = _FakePlayableClient(_NAV_OK, view, playurl, html5_playurl)
+
+    with caplog.at_level(logging.WARNING, logger="rssapi.applications.bilibili.utils"):
+        playable_url = await fetch_playable_video_url(client, {"bvid": "BV1gGjB6qEnR"})
+
+    assert playable_url == "https://upos-sz-mirror.example.com/html5-video.mp4"
+    assert client.html5_playurl_params
+    assert "bilibili wbi playurl missing durl" in caplog.text
+    assert "video=BV1gGjB6qEnR" in caplog.text
+    assert "dash_video_count=1" in caplog.text
+    assert "dash_audio_count=1" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_fetch_playable_video_url_uses_html5_playurl_when_wbi_playurl_is_rejected(
+    caplog: pytest.LogCaptureFixture,
+):
+    view = _FakeResponse(200, {"code": 0, "data": {"pages": [{"cid": 987}]}})
+    playurl = _FakeResponse(412, {}, text="request rejected")
+    html5_playurl = _FakeResponse(
+        200,
+        {
+            "code": 0,
+            "data": {
+                "durl": [
+                    {
+                        "url": "http://upos-sz-mirror.example.com/html5-video.mp4",
+                    }
+                ]
+            },
+        },
+    )
+    client = _FakePlayableClient(_NAV_OK, view, playurl, html5_playurl)
+
+    with caplog.at_level(logging.WARNING, logger="rssapi.applications.bilibili.utils"):
+        playable_url = await fetch_playable_video_url(client, {"bvid": "BV1gGjB6qEnR"})
+
+    assert playable_url == "https://upos-sz-mirror.example.com/html5-video.mp4"
+    assert client.html5_playurl_params
+    assert "bilibili upstream http error: upstream=video playurl status_code=412" in caplog.text
+    assert "bilibili wbi playurl fallback to html5" in caplog.text
+    assert "video=BV1gGjB6qEnR" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_fetch_playable_video_url_logs_missing_html5_durl(caplog: pytest.LogCaptureFixture):
+    view = _FakeResponse(200, {"code": 0, "data": {"pages": [{"cid": 987}]}})
+    playurl = _FakeResponse(
+        200,
+        {
+            "code": 0,
+            "data": {
+                "dash": {
+                    "video": [{"base_url": "https://upos-sz-mirror.example.com/video.m4s"}],
+                    "audio": [{"base_url": "https://upos-sz-mirror.example.com/audio.m4s"}],
+                }
+            },
+        },
+    )
+    html5_playurl = _FakeResponse(200, {"code": 0, "data": {}})
+    client = _FakePlayableClient(_NAV_OK, view, playurl, html5_playurl)
+
+    with caplog.at_level(logging.WARNING, logger="rssapi.applications.bilibili.utils"):
+        playable_url = await fetch_playable_video_url(client, {"bvid": "BV1gGjB6qEnR"})
+
+    assert playable_url is None
+    assert "bilibili html5 playable url missing durl" in caplog.text
+    assert "video=BV1gGjB6qEnR" in caplog.text
+    assert "durl_count=0" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_attach_playable_video_urls_resolves_with_bounded_concurrency():
+    lock = threading.Lock()
+    active_count = 0
+    max_active_count = 0
+    resolved_video_ids = []
+
+    async def fetch_playable_url(_client, video: dict):
+        nonlocal active_count, max_active_count
+        with lock:
+            active_count += 1
+            max_active_count = max(max_active_count, active_count)
+        time.sleep(0.05)
+        with lock:
+            active_count -= 1
+            resolved_video_ids.append(video["bvid"])
+        return f"https://upos-sz-mirror.example.com/{video['bvid']}.mp4"
+
+    videos = [{"bvid": "BV1aa"}, {"bvid": "BV1bb"}, {"bvid": "BV1cc"}]
+
+    resolved_videos = await _attach_playable_video_urls(
+        {},
+        videos,
+        fetch_playable_url,
+        concurrency=2,
+    )
+
+    assert [video["bvid"] for video in resolved_videos] == ["BV1aa", "BV1bb", "BV1cc"]
+    assert [video["playable_url"] for video in resolved_videos] == [
+        "https://upos-sz-mirror.example.com/BV1aa.mp4",
+        "https://upos-sz-mirror.example.com/BV1bb.mp4",
+        "https://upos-sz-mirror.example.com/BV1cc.mp4",
+    ]
+    assert max_active_count == 2
+    assert sorted(resolved_video_ids) == ["BV1aa", "BV1bb", "BV1cc"]
 
 
 @pytest.mark.asyncio

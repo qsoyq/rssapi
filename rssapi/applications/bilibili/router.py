@@ -1,10 +1,20 @@
+import html
+import logging
+import re
+from typing import Any, cast
+
+import httpx
 from asyncache import cached
 from cachetools.keys import hashkey
-from fastapi import APIRouter, Header, Path, Query, Request
+from curl_cffi import requests
+from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
+from fastapi.responses import StreamingResponse
 
 from rssapi.applications.bilibili.utils import (
     BILIBILI_FAVICON,
+    BILIBILI_HEADERS,
     BILIBILI_SPACE_BASE,
+    fetch_playable_video_url,
     fetch_user_feed_data,
     fetch_user_submissions_feed_data,
 )
@@ -14,6 +24,11 @@ from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
 
 router = APIRouter(tags=["RSS"], prefix="/rss/bilibili")
+logger = logging.getLogger(__name__)
+
+_BILIBILI_VIDEO_ID_RE = re.compile(r"^bilibili-video-(?P<bvid>BV[a-zA-Z0-9]+)$")
+_BILIBILI_VIDEO_URL_RE = re.compile(r"/video/(?P<bvid>BV[a-zA-Z0-9]+)")
+_VIDEO_SRC_RE = re.compile(r'(<video\b[^>]*\bsrc=")[^"]*(")', re.IGNORECASE)
 
 
 @router.get(
@@ -78,6 +93,82 @@ async def user_submissions(
     return _build_user_feed(req, mid, user, items)
 
 
+@router.get(
+    "/media/{bvid}",
+    summary="Bilibili CDN 视频中转",
+)
+async def media(
+    bvid: str = Path(..., description="Bilibili BV 号", examples=["BV1gGjB6qEnR"]),
+    range_header: str | None = Header(None, alias="Range"),
+    x_bilibili_cookie: str | None = Header(None, description="Bilibili 用户 cookie", alias="X-Bilibili-Cookie"),
+):
+    """实时解析 Bilibili CDN URL，并带播放页 Referer 转发视频请求。
+
+    RSS 中的 CDN 直链会过期，因此 feed 内 `<video>` 使用这个稳定中转地址。
+    """
+    referer = f"https://www.bilibili.com/video/{bvid}"
+    headers = {**BILIBILI_HEADERS, "Referer": referer}
+    if x_bilibili_cookie:
+        headers["Cookie"] = x_bilibili_cookie
+    logger.warning(
+        f"bilibili media request: video={bvid} has_cookie={bool(x_bilibili_cookie)} "
+        f"cookie_keys={_cookie_keys(x_bilibili_cookie)} has_range={bool(range_header)}"
+    )
+    with requests.Session(headers=headers, timeout=30, impersonate="chrome136") as client:
+        playable_url = await fetch_playable_video_url(client, {"bvid": bvid})
+    if not playable_url:
+        raise HTTPException(status_code=502, detail=f"fetch bilibili media url error: {bvid}")
+
+    upstream_headers = {**headers}
+    if range_header:
+        upstream_headers["Range"] = range_header
+
+    upstream_client, upstream = await _open_upstream_media(playable_url, upstream_headers)
+    if upstream.status_code >= 400:
+        detail = (await upstream.aread()).decode(errors="replace")
+        await upstream.aclose()
+        await upstream_client.aclose()
+        raise HTTPException(status_code=upstream.status_code, detail=detail)
+
+    response_headers = {
+        name: upstream.headers[name]
+        for name in ("content-length", "content-range", "accept-ranges", "last-modified")
+        if name in upstream.headers
+    }
+    response_headers["Cache-Control"] = "no-store"
+    media_type = upstream.headers.get("content-type") or "video/mp4"
+
+    async def iter_content():
+        try:
+            async for chunk in upstream.aiter_bytes(chunk_size=1024 * 256):
+                if chunk:
+                    yield chunk
+        finally:
+            await upstream.aclose()
+            await upstream_client.aclose()
+
+    return StreamingResponse(
+        iter_content(),
+        status_code=upstream.status_code,
+        headers=response_headers,
+        media_type=media_type,
+    )
+
+
+async def _open_upstream_media(playable_url: str, headers: dict[str, str]):
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0),
+        follow_redirects=True,
+    )
+    request = client.build_request("GET", playable_url, headers=headers)
+    try:
+        response = await client.send(request, stream=True)
+    except Exception:
+        await client.aclose()
+        raise
+    return client, response
+
+
 def _build_user_feed(req: Request, mid: int, user, items) -> JSONFeed:
     user_name = (user or {}).get("name") or str(mid)
     user_sign = (user or {}).get("sign") or ""
@@ -96,9 +187,62 @@ def _build_user_feed(req: Request, mid: int, user, items) -> JSONFeed:
                 "url": f"{BILIBILI_SPACE_BASE}/{mid}",
                 "avatar": user_face,
             },
-            "items": items,
+            "items": [_with_stable_media_url(req, item) for item in items],
         }
     )
+
+
+def _absolute_url(req: Request, path: str) -> str:
+    return f"{req.url.scheme}://{req.url.netloc}{path}"
+
+
+def _cookie_keys(cookie: str | None) -> list[str]:
+    if not cookie:
+        return []
+    keys = []
+    for part in cookie.split(";"):
+        name = part.strip().split("=", 1)[0].strip()
+        if name:
+            keys.append(name)
+    return keys
+
+
+def _media_url(req: Request, bvid: str) -> str:
+    if settings.bilibili.media_url_template:
+        return settings.bilibili.media_url_template.format(bvid=bvid)
+    return _absolute_url(req, f"{settings.api_prefix}/rss/bilibili/media/{bvid}")
+
+
+def _item_payload(item) -> dict[str, Any]:
+    if hasattr(item, "model_dump"):
+        return cast("dict[str, Any]", item.model_dump(mode="json"))
+    return dict(item)
+
+
+def _item_bvid(item: dict[str, Any]) -> str | None:
+    item_id = item.get("id") or ""
+    if match := _BILIBILI_VIDEO_ID_RE.match(item_id):
+        return match.group("bvid")
+    item_url = item.get("url") or ""
+    if match := _BILIBILI_VIDEO_URL_RE.search(item_url):
+        return match.group("bvid")
+    return None
+
+
+def _with_stable_media_url(req: Request, item) -> dict[str, Any]:
+    payload = _item_payload(item)
+    content_html = payload.get("content_html") or ""
+    bvid = _item_bvid(payload)
+    if not bvid or "<video" not in content_html:
+        return payload
+
+    media_url = _media_url(req, bvid)
+    payload["content_html"] = _VIDEO_SRC_RE.sub(
+        lambda match: f"{match.group(1)}{html.escape(media_url, quote=True)}{match.group(2)}",
+        content_html,
+        count=1,
+    )
+    return payload
 
 
 @cached(

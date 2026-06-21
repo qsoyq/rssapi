@@ -7,10 +7,10 @@ from functools import cache
 
 import httpx
 from asyncache import cached
-from py_mini_racer import MiniRacer
 from bs4 import BeautifulSoup as Soup
 from cachetools import TTLCache
 from fastapi import HTTPException
+from py_mini_racer import MiniRacer
 from pydantic import BaseModel, Field
 
 from rssapi.applications.nga.schemas import (
