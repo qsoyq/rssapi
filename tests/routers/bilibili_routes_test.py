@@ -104,6 +104,24 @@ def test_bilibili_user_videos_uses_stable_media_url_for_video_src(client: TestCl
     assert item["attachments"][0]["url"] == "https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000"
 
 
+def test_bilibili_user_videos_uses_configured_media_url_template(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(bilibili_router, "fetch_user_feed_data", mock_fetch_user_feed_data_with_playable_video)
+    monkeypatch.setattr(
+        bilibili_router.settings.bilibili,
+        "media_url_template",
+        "https://example.org/api/bilibili/video/{bvid}",
+    )
+
+    response = client.get("/api/rss/bilibili/user/4186021", params={"page_size": 2, "use_cache": False})
+
+    assert response.status_code == 200, response.text
+    item = response.json()["items"][0]
+    assert (
+        '<video controls preload="metadata" src="https://example.org/api/bilibili/video/BV1xx411c7mD"'
+        in item["content_html"]
+    )
+
+
 def test_bilibili_user_videos_validates_page_size(client: TestClient):
     response = client.get("/api/rss/bilibili/user/4186021", params={"page_size": 51})
 

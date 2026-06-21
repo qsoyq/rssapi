@@ -187,6 +187,12 @@ def _absolute_url(req: Request, path: str) -> str:
     return f"{req.url.scheme}://{req.url.netloc}{path}"
 
 
+def _media_url(req: Request, bvid: str) -> str:
+    if settings.bilibili.media_url_template:
+        return settings.bilibili.media_url_template.format(bvid=bvid)
+    return _absolute_url(req, f"{settings.api_prefix}/rss/bilibili/media/{bvid}")
+
+
 def _item_payload(item) -> dict[str, Any]:
     if hasattr(item, "model_dump"):
         return cast("dict[str, Any]", item.model_dump(mode="json"))
@@ -210,7 +216,7 @@ def _with_stable_media_url(req: Request, item) -> dict[str, Any]:
     if not bvid or "<video" not in content_html:
         return payload
 
-    media_url = _absolute_url(req, f"{settings.api_prefix}/rss/bilibili/media/{bvid}")
+    media_url = _media_url(req, bvid)
     payload["content_html"] = _VIDEO_SRC_RE.sub(
         lambda match: f"{match.group(1)}{html.escape(media_url, quote=True)}{match.group(2)}",
         content_html,
