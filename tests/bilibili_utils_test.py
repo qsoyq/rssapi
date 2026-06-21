@@ -215,11 +215,19 @@ class _FakeClient:
 class _FakePlayableClient:
     """按 URL 分派的假 curl_cffi 会话，用于验证 WBI playurl 解析。"""
 
-    def __init__(self, nav: _FakeResponse, view: _FakeResponse, playurl: _FakeResponse):
+    def __init__(
+        self,
+        nav: _FakeResponse,
+        view: _FakeResponse,
+        playurl: _FakeResponse,
+        html5_playurl: _FakeResponse | None = None,
+    ):
         self._nav = nav
         self._view = view
         self._playurl = playurl
+        self._html5_playurl = html5_playurl
         self.playurl_params = None
+        self.html5_playurl_params = None
 
     def get(self, url: str, params=None):
         if url.endswith("/x/web-interface/view"):
@@ -234,6 +242,14 @@ class _FakePlayableClient:
             assert params["fnval"] == 4048
             assert params["try_look"] == 1
             return self._playurl
+        if url.endswith("/x/player/playurl"):
+            self.html5_playurl_params = params
+            assert self._html5_playurl
+            assert params["bvid"] == "BV1gGjB6qEnR"
+            assert params["cid"] == 987
+            assert params["fnval"] == 0
+            assert params["platform"] == "html5"
+            return self._html5_playurl
         raise AssertionError(f"unexpected url: {url}")
 
 
@@ -276,7 +292,7 @@ async def test_fetch_playable_video_url_uses_wbi_playurl():
 
 
 @pytest.mark.asyncio
-async def test_fetch_playable_video_url_logs_missing_durl(caplog: pytest.LogCaptureFixture):
+async def test_fetch_playable_video_url_uses_html5_playurl_fallback(caplog: pytest.LogCaptureFixture):
     view = _FakeResponse(200, {"code": 0, "data": {"pages": [{"cid": 987}]}})
     playurl = _FakeResponse(
         200,
@@ -290,16 +306,57 @@ async def test_fetch_playable_video_url_logs_missing_durl(caplog: pytest.LogCapt
             },
         },
     )
-    client = _FakePlayableClient(_NAV_OK, view, playurl)
+    html5_playurl = _FakeResponse(
+        200,
+        {
+            "code": 0,
+            "data": {
+                "durl": [
+                    {
+                        "url": "http://upos-sz-mirror.example.com/html5-video.mp4",
+                    }
+                ]
+            },
+        },
+    )
+    client = _FakePlayableClient(_NAV_OK, view, playurl, html5_playurl)
+
+    with caplog.at_level(logging.WARNING, logger="rssapi.applications.bilibili.utils"):
+        playable_url = await fetch_playable_video_url(client, {"bvid": "BV1gGjB6qEnR"})
+
+    assert playable_url == "https://upos-sz-mirror.example.com/html5-video.mp4"
+    assert client.html5_playurl_params
+    assert "bilibili wbi playurl missing durl" in caplog.text
+    assert "video=BV1gGjB6qEnR" in caplog.text
+    assert "dash_video_count=1" in caplog.text
+    assert "dash_audio_count=1" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_fetch_playable_video_url_logs_missing_html5_durl(caplog: pytest.LogCaptureFixture):
+    view = _FakeResponse(200, {"code": 0, "data": {"pages": [{"cid": 987}]}})
+    playurl = _FakeResponse(
+        200,
+        {
+            "code": 0,
+            "data": {
+                "dash": {
+                    "video": [{"base_url": "https://upos-sz-mirror.example.com/video.m4s"}],
+                    "audio": [{"base_url": "https://upos-sz-mirror.example.com/audio.m4s"}],
+                }
+            },
+        },
+    )
+    html5_playurl = _FakeResponse(200, {"code": 0, "data": {}})
+    client = _FakePlayableClient(_NAV_OK, view, playurl, html5_playurl)
 
     with caplog.at_level(logging.WARNING, logger="rssapi.applications.bilibili.utils"):
         playable_url = await fetch_playable_video_url(client, {"bvid": "BV1gGjB6qEnR"})
 
     assert playable_url is None
-    assert "bilibili playable url missing durl" in caplog.text
+    assert "bilibili html5 playable url missing durl" in caplog.text
     assert "video=BV1gGjB6qEnR" in caplog.text
-    assert "dash_video_count=1" in caplog.text
-    assert "dash_audio_count=1" in caplog.text
+    assert "durl_count=0" in caplog.text
 
 
 @pytest.mark.asyncio

@@ -403,7 +403,42 @@ async def fetch_playable_video_url(client: requests.Session, video: dict[str, An
 
     dash = playurl_data.get("dash") or {}
     logger.warning(
-        f"bilibili playable url missing durl: video={video_id} cid={cid} "
+        f"bilibili wbi playurl missing durl: video={video_id} cid={cid} "
+        f"durl_count={len(playurl_data.get('durl') or [])} "
+        f"dash_video_count={len(dash.get('video') or [])} dash_audio_count={len(dash.get('audio') or [])}"
+    )
+
+    resp = client.get(
+        f"{BILIBILI_API_BASE}/x/player/playurl",
+        params={
+            **identifier_params,
+            "cid": cid,
+            "qn": 80,
+            "fnval": 0,
+            "fnver": 0,
+            "fourk": 0,
+            "platform": "html5",
+            "high_quality": 1,
+            "otype": "json",
+        },
+    )
+    _raise_for_bilibili_http_error(resp, "html5 video playurl")
+    payload = resp.json()
+    if payload.get("code") != 0:
+        logger.warning(
+            f"bilibili html5 video playurl failed: video={video_id} cid={cid} code={payload.get('code')} "
+            f"message={payload.get('message')}"
+        )
+    _raise_for_bilibili_error(payload, "html5 video playurl")
+    playurl_data = payload.get("data") or payload.get("result") or {}
+    playable_url = _extract_playable_url_from_playurl_data(playurl_data)
+    if playable_url:
+        logger.info(f"bilibili html5 playable url resolved: video={video_id} cid={cid}")
+        return playable_url
+
+    dash = playurl_data.get("dash") or {}
+    logger.warning(
+        f"bilibili html5 playable url missing durl: video={video_id} cid={cid} "
         f"durl_count={len(playurl_data.get('durl') or [])} "
         f"dash_video_count={len(dash.get('video') or [])} dash_audio_count={len(dash.get('audio') or [])}"
     )
