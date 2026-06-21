@@ -167,6 +167,7 @@ def _raise_for_bilibili_error(payload: dict[str, Any], upstream: str) -> None:
 def _raise_for_bilibili_http_error(resp, upstream: str) -> None:
     if resp.status_code < 400:
         return
+    logger.warning(f"bilibili upstream http error: upstream={upstream} status_code={resp.status_code}")
     if resp.status_code == 412:
         raise HTTPException(
             status_code=429,

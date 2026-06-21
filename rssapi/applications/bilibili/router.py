@@ -1,4 +1,5 @@
 import html
+import logging
 import re
 from typing import Any, cast
 
@@ -23,6 +24,7 @@ from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
 
 router = APIRouter(tags=["RSS"], prefix="/rss/bilibili")
+logger = logging.getLogger(__name__)
 
 _BILIBILI_VIDEO_ID_RE = re.compile(r"^bilibili-video-(?P<bvid>BV[a-zA-Z0-9]+)$")
 _BILIBILI_VIDEO_URL_RE = re.compile(r"/video/(?P<bvid>BV[a-zA-Z0-9]+)")
@@ -108,6 +110,10 @@ async def media(
     headers = {**BILIBILI_HEADERS, "Referer": referer}
     if x_bilibili_cookie:
         headers["Cookie"] = x_bilibili_cookie
+    logger.warning(
+        f"bilibili media request: video={bvid} has_cookie={bool(x_bilibili_cookie)} "
+        f"cookie_keys={_cookie_keys(x_bilibili_cookie)} has_range={bool(range_header)}"
+    )
     with requests.Session(headers=headers, timeout=30, impersonate="chrome136") as client:
         playable_url = await fetch_playable_video_url(client, {"bvid": bvid})
     if not playable_url:
@@ -188,6 +194,17 @@ def _build_user_feed(req: Request, mid: int, user, items) -> JSONFeed:
 
 def _absolute_url(req: Request, path: str) -> str:
     return f"{req.url.scheme}://{req.url.netloc}{path}"
+
+
+def _cookie_keys(cookie: str | None) -> list[str]:
+    if not cookie:
+        return []
+    keys = []
+    for part in cookie.split(";"):
+        name = part.strip().split("=", 1)[0].strip()
+        if name:
+            keys.append(name)
+    return keys
 
 
 def _media_url(req: Request, bvid: str) -> str:
