@@ -258,6 +258,18 @@ def test_bilibili_media_proxies_range_with_video_referer(client: TestClient, mon
         received["video"] = video["bvid"]
         return "https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000"
 
+    class Session:
+        def __init__(self, headers: dict[str, str], timeout: int, impersonate: str):
+            received["session_headers"] = headers
+            received["session_timeout"] = str(timeout)
+            received["session_impersonate"] = impersonate
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            received["session_closed"] = True
+
     class UpstreamResponse:
         status_code = 206
         headers = {
@@ -296,9 +308,13 @@ def test_bilibili_media_proxies_range_with_video_referer(client: TestClient, mon
             received["client_closed"] = True
 
     monkeypatch.setattr(bilibili_router, "fetch_playable_video_url", fetch_playable_video_url)
+    monkeypatch.setattr(bilibili_router.requests, "Session", Session)
     monkeypatch.setattr(bilibili_router.httpx, "AsyncClient", AsyncClient)
 
-    response = client.get("/api/rss/bilibili/media/BV1xx411c7mD", headers={"Range": "bytes=0-3"})
+    response = client.get(
+        "/api/rss/bilibili/media/BV1xx411c7mD",
+        headers={"Range": "bytes=0-3", "X-Bilibili-Cookie": "SESSDATA=abc"},
+    )
 
     assert response.status_code == 206, response.text
     assert response.content == b"test"
@@ -310,6 +326,12 @@ def test_bilibili_media_proxies_range_with_video_referer(client: TestClient, mon
     assert isinstance(headers, dict)
     assert headers["Referer"] == "https://www.bilibili.com/video/BV1xx411c7mD"
     assert headers["Range"] == "bytes=0-3"
+    assert headers["Cookie"] == "SESSDATA=abc"
+    session_headers = received["session_headers"]
+    assert isinstance(session_headers, dict)
+    assert session_headers["Referer"] == "https://www.bilibili.com/video/BV1xx411c7mD"
+    assert session_headers["Cookie"] == "SESSDATA=abc"
+    assert received["session_closed"] is True
     assert received["method"] == "GET"
     assert received["stream"] is True
     assert received["follow_redirects"] is True

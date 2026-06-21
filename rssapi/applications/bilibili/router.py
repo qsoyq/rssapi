@@ -98,6 +98,7 @@ async def user_submissions(
 async def media(
     bvid: str = Path(..., description="Bilibili BV 号", examples=["BV1gGjB6qEnR"]),
     range_header: str | None = Header(None, alias="Range"),
+    x_bilibili_cookie: str | None = Header(None, description="Bilibili 用户 cookie", alias="X-Bilibili-Cookie"),
 ):
     """实时解析 Bilibili CDN URL，并带播放页 Referer 转发视频请求。
 
@@ -105,6 +106,8 @@ async def media(
     """
     referer = f"https://www.bilibili.com/video/{bvid}"
     headers = {**BILIBILI_HEADERS, "Referer": referer}
+    if x_bilibili_cookie:
+        headers["Cookie"] = x_bilibili_cookie
     with requests.Session(headers=headers, timeout=30, impersonate="chrome136") as client:
         playable_url = await fetch_playable_video_url(client, {"bvid": bvid})
     if not playable_url:
