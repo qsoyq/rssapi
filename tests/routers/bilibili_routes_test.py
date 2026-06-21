@@ -42,6 +42,39 @@ async def mock_fetch_user_feed_error(mid: int, page_size: int, cookies: str | No
     raise HTTPException(status_code=502, detail="fetch bilibili user videos error: 风控校验失败 (code: -352)")
 
 
+async def mock_fetch_user_feed_data_with_playable_video(mid: int, page_size: int, cookies: str | None = None):
+    user, _ = await mock_fetch_user_feed_data(mid, page_size, cookies)
+    return user, [
+        {
+            "id": "bilibili-video-BV1xx411c7mD",
+            "url": "https://www.bilibili.com/video/BV1xx411c7mD",
+            "title": "测试视频",
+            "content_html": (
+                '<p><video controls preload="metadata" '
+                'src="https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000" '
+                'poster="https://i0.hdslb.com/bfs/archive/cover.jpg">测试视频</video></p>'
+                '<p><a href="https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000">'
+                "视频 CDN 直链（无需 cookies，需要 Bilibili Referer）</a></p>"
+            ),
+            "summary": "测试简介",
+            "image": "https://i0.hdslb.com/bfs/archive/cover.jpg",
+            "date_published": "2024-03-09T16:00:00+00:00",
+            "attachments": [
+                {
+                    "url": "https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000",
+                    "mime_type": "video/mp4",
+                    "title": "视频 CDN 直链（无需 cookies，需要 Bilibili Referer）",
+                }
+            ],
+            "author": {
+                "name": "初夏ChuXXia",
+                "url": "https://space.bilibili.com/4186021",
+                "avatar": "https://i1.hdslb.com/bfs/face/avatar.jpg",
+            },
+        }
+    ]
+
+
 def test_bilibili_user_videos(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(bilibili_router, "fetch_user_feed_data", mock_fetch_user_feed_data)
     response = client.get("/api/rss/bilibili/user/4186021", params={"page_size": 2, "use_cache": False})
@@ -55,6 +88,20 @@ def test_bilibili_user_videos(client: TestClient, monkeypatch: pytest.MonkeyPatc
     assert data["icon"] == "https://i1.hdslb.com/bfs/face/avatar.jpg"
     assert data["items"][0]["url"] == "https://www.bilibili.com/video/BV1xx411c7mD"
     assert data["items"][0]["author"]["name"] == "初夏ChuXXia"
+
+
+def test_bilibili_user_videos_uses_stable_media_url_for_video_src(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(bilibili_router, "fetch_user_feed_data", mock_fetch_user_feed_data_with_playable_video)
+    response = client.get("/api/rss/bilibili/user/4186021", params={"page_size": 2, "use_cache": False})
+
+    assert response.status_code == 200, response.text
+    item = response.json()["items"][0]
+    assert (
+        '<video controls preload="metadata" src="http://testserver/api/rss/bilibili/media/BV1xx411c7mD"'
+        in item["content_html"]
+    )
+    assert "https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000" in item["content_html"]
+    assert item["attachments"][0]["url"] == "https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000"
 
 
 def test_bilibili_user_videos_validates_page_size(client: TestClient):
@@ -117,6 +164,26 @@ def test_bilibili_user_submissions(client: TestClient, monkeypatch: pytest.Monke
     assert data["items"][0]["url"] == "https://www.bilibili.com/video/BV1xx411c7mD"
 
 
+def test_bilibili_user_submissions_uses_stable_media_url_for_video_src(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(
+        bilibili_router,
+        "fetch_user_submissions_feed_data",
+        mock_fetch_user_feed_data_with_playable_video,
+    )
+    response = client.get("/api/rss/bilibili/v2/user/4186021", params={"page_size": 2, "use_cache": False})
+
+    assert response.status_code == 200, response.text
+    item = response.json()["items"][0]
+    assert (
+        '<video controls preload="metadata" src="http://testserver/api/rss/bilibili/media/BV1xx411c7mD"'
+        in item["content_html"]
+    )
+    assert "https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000" in item["content_html"]
+    assert item["attachments"][0]["url"] == "https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000"
+
+
 def test_bilibili_user_submissions_validates_page_size(client: TestClient):
     response = client.get("/api/rss/bilibili/v2/user/4186021", params={"page_size": 51})
 
@@ -164,3 +231,54 @@ def test_bilibili_user_submissions_converts_upstream_error(client: TestClient, m
 
     assert response.status_code == 502
     assert "风控校验失败" in response.json()["detail"]
+
+
+def test_bilibili_media_proxies_range_with_video_referer(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    received: dict[str, str | dict[str, str] | bool] = {}
+
+    async def fetch_playable_video_url(client, video):
+        received["video"] = video["bvid"]
+        return "https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000"
+
+    class UpstreamResponse:
+        status_code = 206
+        text = ""
+        headers = {
+            "content-type": "video/mp4",
+            "content-length": "4",
+            "content-range": "bytes 0-3/10",
+            "accept-ranges": "bytes",
+        }
+
+        def iter_content(self, chunk_size: int):
+            received["chunk_size"] = str(chunk_size)
+            yield b"test"
+
+        def close(self):
+            received["closed"] = True
+
+    def get(playable_url: str, headers: dict[str, str], timeout: int, impersonate: str, stream: bool):
+        received["playable_url"] = playable_url
+        received["headers"] = headers
+        received["timeout"] = str(timeout)
+        received["impersonate"] = impersonate
+        received["stream"] = stream
+        return UpstreamResponse()
+
+    monkeypatch.setattr(bilibili_router, "fetch_playable_video_url", fetch_playable_video_url)
+    monkeypatch.setattr(bilibili_router.requests, "get", get)
+
+    response = client.get("/api/rss/bilibili/media/BV1xx411c7mD", headers={"Range": "bytes=0-3"})
+
+    assert response.status_code == 206, response.text
+    assert response.content == b"test"
+    assert response.headers["content-range"] == "bytes 0-3/10"
+    assert response.headers["cache-control"] == "no-store"
+    assert received["video"] == "BV1xx411c7mD"
+    assert received["playable_url"] == "https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000"
+    headers = received["headers"]
+    assert isinstance(headers, dict)
+    assert headers["Referer"] == "https://www.bilibili.com/video/BV1xx411c7mD"
+    assert headers["Range"] == "bytes=0-3"
+    assert received["stream"] is True
+    assert received["closed"] is True
