@@ -93,14 +93,16 @@ def test_video_to_jsonfeed_item_renders_playable_video():
     assert 'preload="metadata"' in content_html
     assert 'src="https://upos-sz-mirror.example.com/video.mp4?token=abc&amp;deadline=1781890000"' in content_html
     assert 'poster="https://i2.hdslb.com/bfs/archive/cover.jpg"' in content_html
-    assert "视频 CDN 直链（需要 Bilibili Referer）" in content_html
+    assert "视频 CDN 直链（无需 cookies，需要 Bilibili Referer）" in content_html
     assert 'href="https://upos-sz-mirror.example.com/video.mp4?token=abc&amp;deadline=1781890000"' in content_html
+    assert "播放请求 Referer:" in content_html
+    assert "<code>https://www.bilibili.com/video/BV1gGjB6qEnR</code>" in content_html
     assert "<img " not in content_html
     assert "SESSDATA" not in content_html
     assert item.attachments
     assert str(item.attachments[0].url) == "https://upos-sz-mirror.example.com/video.mp4?token=abc&deadline=1781890000"
     assert item.attachments[0].mime_type == "video/mp4"
-    assert item.attachments[0].title == "视频 CDN 直链（需要 Bilibili Referer）"
+    assert item.attachments[0].title == "视频 CDN 直链（无需 cookies，需要 Bilibili Referer）"
 
 
 def test_extract_video_cid_prefers_video_field():

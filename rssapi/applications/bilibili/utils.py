@@ -410,11 +410,15 @@ def _build_video_media_html(playable_url: str | None, cover: str | None, title: 
     return ""
 
 
-def _build_video_direct_link_html(playable_url: str | None) -> str:
+def _build_video_direct_link_html(playable_url: str | None, video_url: str) -> str:
     if not playable_url:
         return ""
     safe_url = html.escape(playable_url, quote=True)
-    return f'<p><a href="{safe_url}" rel="noopener noreferrer">视频 CDN 直链（需要 Bilibili Referer）</a></p>'
+    safe_referer = html.escape(video_url, quote=True)
+    return (
+        f'<p><a href="{safe_url}" rel="noopener noreferrer">视频 CDN 直链（无需 cookies，需要 Bilibili Referer）</a></p>'
+        f"<p>播放请求 Referer: <code>{safe_referer}</code></p>"
+    )
 
 
 def video_to_jsonfeed_item(video: dict[str, Any], author: JSONFeedAuthor) -> JSONFeedItem:
@@ -434,13 +438,19 @@ def video_to_jsonfeed_item(video: dict[str, Any], author: JSONFeedAuthor) -> JSO
         f"<li>{name}: {html.escape(str(value))}</li>" for name, value in stats if value not in (None, "")
     )
     media_html = _build_video_media_html(playable_url, cover, title)
-    direct_link_html = _build_video_direct_link_html(playable_url)
+    direct_link_html = _build_video_direct_link_html(playable_url, video_url)
     content_html = (
         f"{media_html}<p>{description}</p><ul>{stats_html}</ul>{direct_link_html}"
         f'<p><a href="{video_url}">在 Bilibili 查看</a></p>'
     )
     attachments = (
-        [{"url": playable_url, "mime_type": "video/mp4", "title": "视频 CDN 直链（需要 Bilibili Referer）"}]
+        [
+            {
+                "url": playable_url,
+                "mime_type": "video/mp4",
+                "title": "视频 CDN 直链（无需 cookies，需要 Bilibili Referer）",
+            }
+        ]
         if playable_url
         else None
     )
