@@ -330,16 +330,6 @@ def _extract_playable_url_from_playurl_data(playurl_data: dict[str, Any]) -> str
             url = normalize_url(backup_url)
             if url:
                 return url
-
-    dash = playurl_data.get("dash") or {}
-    for entry in dash.get("video") or []:
-        url = normalize_url(entry.get("baseUrl") or entry.get("base_url"))
-        if url:
-            return url
-        for backup_url in entry.get("backupUrl") or entry.get("backup_url") or []:
-            url = normalize_url(backup_url)
-            if url:
-                return url
     return None
 
 
@@ -362,18 +352,24 @@ async def fetch_playable_video_url(client: requests.Session, video: dict[str, An
     if cid is None:
         return None
 
-    resp = client.get(
-        f"{BILIBILI_API_BASE}/x/player/playurl",
-        params={
+    img_key, sub_key = await _get_wbi_keys(client)
+    params = sign_wbi_params(
+        {
             **identifier_params,
             "cid": cid,
             "qn": 80,
-            "fnval": 0,
+            "fnval": 4048,
+            "fnver": 0,
             "fourk": 0,
-            "platform": "html5",
-            "high_quality": 1,
             "otype": "json",
+            "try_look": 1,
         },
+        img_key,
+        sub_key,
+    )
+    resp = client.get(
+        f"{BILIBILI_API_BASE}/x/player/wbi/playurl",
+        params=params,
     )
     _raise_for_bilibili_http_error(resp, "video playurl")
     payload = resp.json()
@@ -414,6 +410,13 @@ def _build_video_media_html(playable_url: str | None, cover: str | None, title: 
     return ""
 
 
+def _build_video_direct_link_html(playable_url: str | None) -> str:
+    if not playable_url:
+        return ""
+    safe_url = html.escape(playable_url, quote=True)
+    return f'<p><a href="{safe_url}" rel="noopener noreferrer">视频 CDN 直链（需要 Bilibili Referer）</a></p>'
+
+
 def video_to_jsonfeed_item(video: dict[str, Any], author: JSONFeedAuthor) -> JSONFeedItem:
     bvid = video.get("bvid") or f"av{video.get('aid')}"
     video_url = f"https://www.bilibili.com/video/{bvid}"
@@ -431,8 +434,15 @@ def video_to_jsonfeed_item(video: dict[str, Any], author: JSONFeedAuthor) -> JSO
         f"<li>{name}: {html.escape(str(value))}</li>" for name, value in stats if value not in (None, "")
     )
     media_html = _build_video_media_html(playable_url, cover, title)
+    direct_link_html = _build_video_direct_link_html(playable_url)
     content_html = (
-        f'{media_html}<p>{description}</p><ul>{stats_html}</ul><p><a href="{video_url}">在 Bilibili 查看</a></p>'
+        f"{media_html}<p>{description}</p><ul>{stats_html}</ul>{direct_link_html}"
+        f'<p><a href="{video_url}">在 Bilibili 查看</a></p>'
+    )
+    attachments = (
+        [{"url": playable_url, "mime_type": "video/mp4", "title": "视频 CDN 直链（需要 Bilibili Referer）"}]
+        if playable_url
+        else None
     )
 
     return JSONFeedItem.model_validate(
@@ -445,6 +455,7 @@ def video_to_jsonfeed_item(video: dict[str, Any], author: JSONFeedAuthor) -> JSO
             "image": cover,
             "date_published": timestamp_to_iso(video.get("created")),
             "author": author,
+            "attachments": attachments,
         }
     )
 

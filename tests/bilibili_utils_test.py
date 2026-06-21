@@ -7,6 +7,7 @@ from rssapi.applications.bilibili.utils import (
     _extract_video_cid,
     _extract_wbi_key,
     _raise_for_bilibili_error,
+    fetch_playable_video_url,
     fetch_user_submissions,
     format_duration,
     normalize_url,
@@ -92,8 +93,14 @@ def test_video_to_jsonfeed_item_renders_playable_video():
     assert 'preload="metadata"' in content_html
     assert 'src="https://upos-sz-mirror.example.com/video.mp4?token=abc&amp;deadline=1781890000"' in content_html
     assert 'poster="https://i2.hdslb.com/bfs/archive/cover.jpg"' in content_html
+    assert "视频 CDN 直链（需要 Bilibili Referer）" in content_html
+    assert 'href="https://upos-sz-mirror.example.com/video.mp4?token=abc&amp;deadline=1781890000"' in content_html
     assert "<img " not in content_html
     assert "SESSDATA" not in content_html
+    assert item.attachments
+    assert str(item.attachments[0].url) == "https://upos-sz-mirror.example.com/video.mp4?token=abc&deadline=1781890000"
+    assert item.attachments[0].mime_type == "video/mp4"
+    assert item.attachments[0].title == "视频 CDN 直链（需要 Bilibili Referer）"
 
 
 def test_extract_video_cid_prefers_video_field():
@@ -120,21 +127,22 @@ def test_extract_playable_url_from_durl():
     )
 
 
-def test_extract_playable_url_from_dash_video_fallback():
+def test_extract_playable_url_does_not_use_dash_video_only_url():
     assert (
         _extract_playable_url_from_playurl_data(
             {
                 "dash": {
                     "video": [
                         {
-                            "base_url": "",
-                            "backup_url": ["//upos-sz-mirror.example.com/video.m4s"],
+                            "base_url": "https://upos-sz-mirror.example.com/video.m4s",
+                            "backup_url": ["//upos-sz-mirror.example.com/video-backup.m4s"],
                         }
-                    ]
+                    ],
+                    "audio": [{"base_url": "https://upos-sz-mirror.example.com/audio.m4s"}],
                 }
             }
         )
-        == "https://upos-sz-mirror.example.com/video.m4s"
+        is None
     )
 
 
@@ -200,6 +208,31 @@ class _FakeClient:
         raise AssertionError(f"unexpected url: {url}")
 
 
+class _FakePlayableClient:
+    """按 URL 分派的假 curl_cffi 会话，用于验证 WBI playurl 解析。"""
+
+    def __init__(self, nav: _FakeResponse, view: _FakeResponse, playurl: _FakeResponse):
+        self._nav = nav
+        self._view = view
+        self._playurl = playurl
+        self.playurl_params = None
+
+    def get(self, url: str, params=None):
+        if url.endswith("/x/web-interface/view"):
+            return self._view
+        if url.endswith("/x/web-interface/nav"):
+            return self._nav
+        if url.endswith("/x/player/wbi/playurl"):
+            self.playurl_params = params
+            assert params and "w_rid" in params and "wts" in params
+            assert params["bvid"] == "BV1gGjB6qEnR"
+            assert params["cid"] == 987
+            assert params["fnval"] == 4048
+            assert params["try_look"] == 1
+            return self._playurl
+        raise AssertionError(f"unexpected url: {url}")
+
+
 _NAV_OK = _FakeResponse(
     200,
     {
@@ -212,6 +245,30 @@ _NAV_OK = _FakeResponse(
         },
     },
 )
+
+
+@pytest.mark.asyncio
+async def test_fetch_playable_video_url_uses_wbi_playurl():
+    view = _FakeResponse(200, {"code": 0, "data": {"pages": [{"cid": 987}]}})
+    playurl = _FakeResponse(
+        200,
+        {
+            "code": 0,
+            "data": {
+                "durl": [
+                    {
+                        "url": "http://upos-sz-mirror.example.com/video.mp4",
+                    }
+                ]
+            },
+        },
+    )
+    client = _FakePlayableClient(_NAV_OK, view, playurl)
+
+    playable_url = await fetch_playable_video_url(client, {"bvid": "BV1gGjB6qEnR"})
+
+    assert playable_url == "https://upos-sz-mirror.example.com/video.mp4"
+    assert client.playurl_params
 
 
 @pytest.mark.asyncio
