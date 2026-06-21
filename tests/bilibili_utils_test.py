@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from fastapi import HTTPException
 
@@ -271,6 +273,33 @@ async def test_fetch_playable_video_url_uses_wbi_playurl():
 
     assert playable_url == "https://upos-sz-mirror.example.com/video.mp4"
     assert client.playurl_params
+
+
+@pytest.mark.asyncio
+async def test_fetch_playable_video_url_logs_missing_durl(caplog: pytest.LogCaptureFixture):
+    view = _FakeResponse(200, {"code": 0, "data": {"pages": [{"cid": 987}]}})
+    playurl = _FakeResponse(
+        200,
+        {
+            "code": 0,
+            "data": {
+                "dash": {
+                    "video": [{"base_url": "https://upos-sz-mirror.example.com/video.m4s"}],
+                    "audio": [{"base_url": "https://upos-sz-mirror.example.com/audio.m4s"}],
+                }
+            },
+        },
+    )
+    client = _FakePlayableClient(_NAV_OK, view, playurl)
+
+    with caplog.at_level(logging.WARNING, logger="rssapi.applications.bilibili.utils"):
+        playable_url = await fetch_playable_video_url(client, {"bvid": "BV1gGjB6qEnR"})
+
+    assert playable_url is None
+    assert "bilibili playable url missing durl" in caplog.text
+    assert "video=BV1gGjB6qEnR" in caplog.text
+    assert "dash_video_count=1" in caplog.text
+    assert "dash_audio_count=1" in caplog.text
 
 
 @pytest.mark.asyncio

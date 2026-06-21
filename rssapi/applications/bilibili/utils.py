@@ -1,5 +1,6 @@
 import hashlib
 import html
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
@@ -11,6 +12,8 @@ from curl_cffi import requests
 from fastapi import HTTPException
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedAuthor, JSONFeedItem
+
+logger = logging.getLogger(__name__)
 
 BILIBILI_API_BASE = "https://api.bilibili.com"
 BILIBILI_SPACE_BASE = "https://space.bilibili.com"
@@ -299,6 +302,10 @@ def _video_identifier_params(video: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _video_debug_id(video: dict[str, Any]) -> str:
+    return str(video.get("bvid") or video.get("aid") or "unknown")
+
+
 def _extract_video_cid(video: dict[str, Any], view_data: dict[str, Any] | None = None) -> int | str | None:
     cid = video.get("cid")
     if cid not in (None, ""):
@@ -334,12 +341,15 @@ def _extract_playable_url_from_playurl_data(playurl_data: dict[str, Any]) -> str
 
 
 async def fetch_playable_video_url(client: requests.Session, video: dict[str, Any]) -> str | None:
+    video_id = _video_debug_id(video)
     playable_url = normalize_url(video.get("playable_url") or video.get("video_url") or video.get("src"))
     if playable_url:
+        logger.info(f"bilibili playable url already present: video={video_id}")
         return playable_url
 
     identifier_params = _video_identifier_params(video)
     if not identifier_params:
+        logger.warning(f"bilibili playable url skipped: video={video_id} missing bvid/aid")
         return None
 
     cid = _extract_video_cid(video)
@@ -347,9 +357,15 @@ async def fetch_playable_video_url(client: requests.Session, video: dict[str, An
         resp = client.get(f"{BILIBILI_API_BASE}/x/web-interface/view", params=identifier_params)
         _raise_for_bilibili_http_error(resp, "video view")
         payload = resp.json()
+        if payload.get("code") != 0:
+            logger.warning(
+                f"bilibili video view failed: video={video_id} code={payload.get('code')} "
+                f"message={payload.get('message')}"
+            )
         _raise_for_bilibili_error(payload, "video view")
         cid = _extract_video_cid(video, payload.get("data") or {})
     if cid is None:
+        logger.warning(f"bilibili playable url skipped: video={video_id} missing cid")
         return None
 
     img_key, sub_key = await _get_wbi_keys(client)
@@ -373,8 +389,25 @@ async def fetch_playable_video_url(client: requests.Session, video: dict[str, An
     )
     _raise_for_bilibili_http_error(resp, "video playurl")
     payload = resp.json()
+    if payload.get("code") != 0:
+        logger.warning(
+            f"bilibili video playurl failed: video={video_id} cid={cid} code={payload.get('code')} "
+            f"message={payload.get('message')}"
+        )
     _raise_for_bilibili_error(payload, "video playurl")
-    return _extract_playable_url_from_playurl_data(payload.get("data") or payload.get("result") or {})
+    playurl_data = payload.get("data") or payload.get("result") or {}
+    playable_url = _extract_playable_url_from_playurl_data(playurl_data)
+    if playable_url:
+        logger.info(f"bilibili playable url resolved: video={video_id} cid={cid}")
+        return playable_url
+
+    dash = playurl_data.get("dash") or {}
+    logger.warning(
+        f"bilibili playable url missing durl: video={video_id} cid={cid} "
+        f"durl_count={len(playurl_data.get('durl') or [])} "
+        f"dash_video_count={len(dash.get('video') or [])} dash_audio_count={len(dash.get('audio') or [])}"
+    )
+    return None
 
 
 async def _attach_playable_video_urls(
@@ -387,10 +420,19 @@ async def _attach_playable_video_urls(
         item = {**video}
         try:
             playable_url = await fetch_playable_url(client, item)
-        except (HTTPException, requests.RequestsError):
+        except HTTPException as exc:
+            logger.warning(
+                f"bilibili playable url fallback: video={_video_debug_id(item)} "
+                f"status_code={exc.status_code} detail={exc.detail}"
+            )
+            playable_url = None
+        except requests.RequestsError as exc:
+            logger.warning(f"bilibili playable url fallback: video={_video_debug_id(item)} error={exc}")
             playable_url = None
         if playable_url:
             item["playable_url"] = playable_url
+        else:
+            logger.warning(f"bilibili feed item uses image fallback: video={_video_debug_id(item)}")
         enriched.append(item)
     return enriched
 
