@@ -3,6 +3,7 @@ import contextlib
 import html
 import logging
 import re
+import urllib.parse
 from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from functools import lru_cache, wraps
@@ -11,8 +12,12 @@ from typing import Any, Iterator
 import twitter_cli.auth as twitter_auth
 from twitter_cli.client import TwitterClient
 from twitter_cli.config import load_config
+from twitter_cli.exceptions import TwitterAPIError
 from twitter_cli.models import UserProfile
 
+from rssapi.applications.twitter.browser_fallback import fetch_user_posts_with_browser
+from rssapi.applications.twitter.client_transaction import client_transaction_signer
+from rssapi.applications.twitter.patch import install_twitter_client_429_no_retry_patch
 from rssapi.applications.twitter.types import Tweet
 from rssapi.core.settings import settings
 from rssapi.utils.md import markdown_parse
@@ -25,7 +30,7 @@ _twitter_fetch_semaphore = asyncio.Semaphore(settings.twitter.fetch_concurrency)
 
 HTTP_URL_PATTERN = re.compile(r"https?://\S+")
 TCO_URL_PATTERN = re.compile(r"https://t\.co/\S+")
-# install_twitter_client_429_no_retry_patch()
+install_twitter_client_429_no_retry_patch()
 
 
 class AuthorScreenNameMapping:
@@ -177,8 +182,8 @@ async def fetch_feed(max_tweets: int, cookies: str, feed_type: str = "for-you") 
 
 
 @lru_cache(maxsize=1024)
-def _fetch_user_profile(screen_name: str, auth_token: str, ct0: str) -> UserProfile:
-    client = _build_twitter_client(auth_token, ct0)
+def _fetch_user_profile(screen_name: str, auth_token: str, ct0: str, cookie_string: str | None = None) -> UserProfile:
+    client = _build_twitter_client(auth_token, ct0, cookie_string=cookie_string)
     profile = client.fetch_user(screen_name)
     return profile
 
@@ -190,9 +195,22 @@ def _fetch_user_posts_sync(screen_name: str, max_tweets: int, cookies: str) -> l
     if not auth_token or not ct0:
         raise RuntimeError("auth_token or ct0 is not found in cookies")
 
-    client = _build_twitter_client(auth_token, ct0, None)
-    profile = _fetch_user_profile(screen_name, auth_token, ct0)
-    tweets = client.fetch_user_tweets(profile.id, max_tweets)
+    client = _build_twitter_client(auth_token, ct0, cookie_string=cookies)
+    profile = _fetch_user_profile(screen_name, auth_token, ct0, cookies)
+    try:
+        tweets = client.fetch_user_tweets(profile.id, max_tweets)
+    except TwitterAPIError as e:
+        if e.status_code != 429 or not settings.twitter.browser_fallback_enabled:
+            raise
+        logger.warning(f"Twitter UserTweets hit 429, falling back to browser-rendered profile: {screen_name}")
+        # The transaction signer keeps a Sync Playwright driver open. Close it before starting the
+        # browser fallback because Playwright does not allow nested sync drivers on the same thread.
+        client_transaction_signer.close()
+        browser_tweets = fetch_user_posts_with_browser(screen_name, max_tweets, cookies)
+        if not browser_tweets:
+            raise
+        return browser_tweets
+
     normalized_screen_name = screen_name.casefold()
     rssapi_tweets = _to_rssapi_tweets(tweets)
     return [
@@ -297,6 +315,31 @@ def new_get_instructions(
 
 
 class MyTwitterClient(TwitterClient):
+    def _build_headers(self, url="", method="GET"):
+        headers = super()._build_headers(url=url, method=method)
+        if (
+            url
+            and settings.twitter.client_transaction_signer_enabled
+            and "X-Client-Transaction-Id" not in headers
+            and "x-client-transaction-id" not in headers
+        ):
+            try:
+                transaction_id = client_transaction_signer.sign(
+                    url,
+                    method,
+                    settings.twitter.client_transaction_bootstrap_url,
+                )
+                if transaction_id:
+                    headers["X-Client-Transaction-Id"] = transaction_id
+                    parsed_url = urllib.parse.urlparse(url)
+                    logger.debug(
+                        f"Twitter ClientTransaction Playwright signer generated: path={parsed_url.path} "
+                        f"method={method} length={len(transaction_id)}"
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to generate Twitter ClientTransaction with Playwright signer: {e}")
+        return headers
+
     def _fetch_timeline(
         self,
         operation_name,

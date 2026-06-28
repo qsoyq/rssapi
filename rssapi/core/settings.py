@@ -30,6 +30,9 @@ class TwitterSettings(BaseSettings):
     user_posts_cache_maxsize: int = 4096
     feed_cache_ttl: int = 3600
     feed_cache_maxsize: int = 4096
+    client_transaction_signer_enabled: bool = True
+    client_transaction_bootstrap_url: str = "https://x.com/skyseafor"
+    browser_fallback_enabled: bool = True
 
 
 class RedditSettings(BaseSettings):
