@@ -309,14 +309,23 @@ def test_fetch_user_posts_sync_filters_by_screen_name_and_keeps_retweets(monkeyp
             }
         )
 
-    fake_client = SimpleNamespace(
-        fetch_user=lambda screen_name: SimpleNamespace(id=f"user-{screen_name}"),
-        fetch_user_tweets=lambda user_id, max_tweets: ["ignored-raw-tweets"],
-    )
+    captured_clients: list[dict[str, object]] = []
 
-    monkeypatch.setattr(
-        twitter_utils, "_build_twitter_client", lambda auth_token, ct0, cookie_string=None: fake_client
-    )
+    class FakeClient:
+        def __init__(self, cookie_string: str | None):
+            self.cookie_string = cookie_string
+
+        def fetch_user(self, screen_name: str) -> SimpleNamespace:
+            return SimpleNamespace(id=f"user-{screen_name}")
+
+        def fetch_user_tweets(self, user_id: str, max_tweets: int) -> list[str]:
+            return ["ignored-raw-tweets"]
+
+    def build_client(auth_token: str, ct0: str, cookie_string: str | None = None) -> FakeClient:
+        captured_clients.append({"auth_token": auth_token, "ct0": ct0, "cookie_string": cookie_string})
+        return FakeClient(cookie_string)
+
+    monkeypatch.setattr(twitter_utils, "_build_twitter_client", build_client)
     monkeypatch.setattr(
         twitter_utils,
         "_to_rssapi_tweets",
@@ -328,9 +337,93 @@ def test_fetch_user_posts_sync_filters_by_screen_name_and_keeps_retweets(monkeyp
         ],
     )
 
-    tweets = twitter_utils._fetch_user_posts_sync("targetuser", 10, "auth_token=token; ct0=csrf")
+    tweets = twitter_utils._fetch_user_posts_sync(
+        "targetuser",
+        10,
+        "auth_token=token; ct0=csrf; guest_id=v1%3Aguest; twid=u%3D123",
+    )
 
     assert [tweet.id for tweet in tweets] == ["1", "2", "4"]
+    assert captured_clients == [
+        {
+            "auth_token": "token",
+            "ct0": "csrf",
+            "cookie_string": "auth_token=token; ct0=csrf; guest_id=v1%3Aguest; twid=u%3D123",
+        },
+        {
+            "auth_token": "token",
+            "ct0": "csrf",
+            "cookie_string": "auth_token=token; ct0=csrf; guest_id=v1%3Aguest; twid=u%3D123",
+        },
+    ]
+
+
+def test_fetch_user_posts_sync_falls_back_to_browser_on_429(monkeypatch: pytest.MonkeyPatch):
+    fallback_tweet = Tweet.model_validate(
+        {
+            "id": "fallback-1",
+            "text": "rendered tweet",
+            "author": {"name": "targetuser", "screenName": "targetuser"},
+            "metrics": {},
+            "createdAt": "2025-01-01T00:00:00+00:00",
+            "media": [],
+        }
+    )
+    captured: dict[str, object] = {}
+    signer_closed = {"value": False}
+
+    class FakeClient:
+        def fetch_user(self, screen_name: str) -> SimpleNamespace:
+            return SimpleNamespace(id=f"user-{screen_name}")
+
+        def fetch_user_tweets(self, user_id: str, max_tweets: int) -> list[str]:
+            raise twitter_utils.TwitterAPIError(429, "Twitter API error 429: Rate limit exceeded")
+
+    monkeypatch.setattr(twitter_utils, "_build_twitter_client", lambda *args, **kwargs: FakeClient())
+    monkeypatch.setattr(twitter_utils.settings.twitter, "browser_fallback_enabled", True)
+    monkeypatch.setattr(
+        twitter_utils,
+        "client_transaction_signer",
+        SimpleNamespace(close=lambda: signer_closed.update({"value": True})),
+    )
+    twitter_utils._fetch_user_profile.cache_clear()
+
+    def fake_browser_fallback(screen_name: str, max_tweets: int, cookies: str) -> list[Tweet]:
+        assert signer_closed["value"] is True
+        captured.update({"screen_name": screen_name, "max_tweets": max_tweets, "cookies": cookies})
+        return [fallback_tweet]
+
+    monkeypatch.setattr(twitter_utils, "fetch_user_posts_with_browser", fake_browser_fallback)
+
+    tweets = twitter_utils._fetch_user_posts_sync("targetuser", 5, "auth_token=token; ct0=csrf")
+
+    assert tweets == [fallback_tweet]
+    assert captured == {
+        "screen_name": "targetuser",
+        "max_tweets": 5,
+        "cookies": "auth_token=token; ct0=csrf",
+    }
+
+
+def test_fetch_user_posts_sync_reraises_429_when_browser_fallback_is_empty(monkeypatch: pytest.MonkeyPatch):
+    original_error = twitter_utils.TwitterAPIError(429, "Twitter API error 429: Rate limit exceeded")
+
+    class FakeClient:
+        def fetch_user(self, screen_name: str) -> SimpleNamespace:
+            return SimpleNamespace(id=f"user-{screen_name}")
+
+        def fetch_user_tweets(self, user_id: str, max_tweets: int) -> list[str]:
+            raise original_error
+
+    monkeypatch.setattr(twitter_utils, "_build_twitter_client", lambda *args, **kwargs: FakeClient())
+    monkeypatch.setattr(twitter_utils.settings.twitter, "browser_fallback_enabled", True)
+    monkeypatch.setattr(twitter_utils, "fetch_user_posts_with_browser", lambda *args, **kwargs: [])
+    twitter_utils._fetch_user_profile.cache_clear()
+
+    with pytest.raises(twitter_utils.TwitterAPIError) as exc_info:
+        twitter_utils._fetch_user_posts_sync("targetuser", 5, "auth_token=token; ct0=csrf")
+
+    assert exc_info.value is original_error
 
 
 def test_content_html_from_tweet_renders_photo_and_animated_gif_as_image():
