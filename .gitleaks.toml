@@ -1,0 +1,5 @@
+[[allowlists]]
+description = "Bark's published shared APNs key"
+paths = [
+    '''^rssapi/applications/rss/schemas/notifications/apple\.py$''',
+]
