@@ -20,6 +20,7 @@ uv sync --all-groups
 ## Checks
 
 ```bash
+uv run pre-commit run --all-files
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest tests/
