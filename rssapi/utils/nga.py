@@ -218,13 +218,13 @@ class NgaToolkit:
     def format_content_html(content: str) -> str:
         def replace_img_tags(text: str) -> str:
             pattern = r"\[img\]\.(/mon.*?)\[/img\]"
-            replaced_text = re.sub(pattern, r'<img src="https://img.nga.178.com/attachments\1"></img>', text)
+            replaced_text = re.sub(pattern, r'<img src="https://img.nga.cn/attachments\1"></img>', text)
 
             pattern = r"\[img\]\./\.(/mon.*?)\[/img\]"
-            replaced_text = re.sub(pattern, r'<img src="https://img.nga.178.com/attachments\1"></img>', replaced_text)
+            replaced_text = re.sub(pattern, r'<img src="https://img.nga.cn/attachments\1"></img>', replaced_text)
 
             pattern = r"\[img\](http.*?)\[/img\]"
-            replaced_text = re.sub(pattern, r'<img src="https://img.nga.178.com/attachments\1"></img>', replaced_text)
+            replaced_text = re.sub(pattern, r'<img src="https://img.nga.cn/attachments\1"></img>', replaced_text)
             return replaced_text
 
         def replace_b_tags(text: str) -> str:
@@ -301,14 +301,14 @@ class NgaToolkit:
 
         def replace_video_tags(text: str) -> str:
             pattern = r"\[flash=video\]\.(.*?)\[/flash\]"
-            replaced_text = re.sub(pattern, r'<video src="https://img.nga.178.com/attachments\1"></video>', text)
+            replaced_text = re.sub(pattern, r'<video src="https://img.nga.cn/attachments\1"></video>', text)
             return replaced_text
 
         def replace_audio_tags(text: str) -> str:
             pattern = r"\[flash=audio\]\.(.*?)\[/flash\]"
             replaced_text = re.sub(
                 pattern,
-                r'<audio controls><source src="https://img.nga.178.com/attachments\1" type="audio/mp3" /></audio>',
+                r'<audio controls><source src="https://img.nga.cn/attachments\1" type="audio/mp3" /></audio>',
                 text,
             )
             return replaced_text
@@ -319,7 +319,7 @@ class NgaToolkit:
                 content = match.group(2)
                 content = re.sub(
                     r"\.(/mon.*?)\.(jpg|png|jpeg)",
-                    r'<img src="https://img.nga.178.com/attachments\1.\2"></img>',
+                    r'<img src="https://img.nga.cn/attachments\1.\2"></img>',
                     content,
                 )
                 text = f"""<details><summary>{summary}</summary>{content}</details>"""
