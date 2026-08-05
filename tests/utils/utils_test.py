@@ -25,12 +25,12 @@ def test_nga_content_html_format():
     content_html = "[img]./mon_202508/13/-d1rcQ1ah-attnK1cT3cSp3-og.jpg[/img]"
     assert (
         NgaToolkit.format_content_html(content_html)
-        == """<img src="https://img.nga.178.com/attachments/mon_202508/13/-d1rcQ1ah-attnK1cT3cSp3-og.jpg"></img>"""
+        == """<img src="https://img.nga.cn/attachments/mon_202508/13/-d1rcQ1ah-attnK1cT3cSp3-og.jpg"></img>"""
     )
     content_html = "[img]./mon_202508/13/-d1rcQ1ah-attnK1cT3cSp3-og.jpg[/img]<hr>[img]./mon_202508/13/-d1rcQ1ah-attnK1cT3cSp3-og.jpg[/img]"
     assert (
         NgaToolkit.format_content_html(content_html)
-        == """<img src="https://img.nga.178.com/attachments/mon_202508/13/-d1rcQ1ah-attnK1cT3cSp3-og.jpg"></img><hr><img src="https://img.nga.178.com/attachments/mon_202508/13/-d1rcQ1ah-attnK1cT3cSp3-og.jpg"></img>"""
+        == """<img src="https://img.nga.cn/attachments/mon_202508/13/-d1rcQ1ah-attnK1cT3cSp3-og.jpg"></img><hr><img src="https://img.nga.cn/attachments/mon_202508/13/-d1rcQ1ah-attnK1cT3cSp3-og.jpg"></img>"""
     )
 
     # b
@@ -143,21 +143,21 @@ def test_nga_content_html_format():
     content_html = "[flash=video]./mon_202508/16/-ncoxtQ2w-9d78ZqT6wSf0-qo.gif.mp4[/flash]"
     assert (
         NgaToolkit.format_content_html(content_html)
-        == """<video src="https://img.nga.178.com/attachments/mon_202508/16/-ncoxtQ2w-9d78ZqT6wSf0-qo.gif.mp4"></video>"""
+        == """<video src="https://img.nga.cn/attachments/mon_202508/16/-ncoxtQ2w-9d78ZqT6wSf0-qo.gif.mp4"></video>"""
     )
 
     # flash audio
     content_html = "[flash=audio]./mon_202508/28/-7Q2w-ikt3Zf.mp3?duration=39″[/flash]"
     assert (
         NgaToolkit.format_content_html(content_html)
-        == """<audio controls><source src="https://img.nga.178.com/attachments/mon_202508/28/-7Q2w-ikt3Zf.mp3?duration=39″" type="audio/mp3" /></audio>"""
+        == """<audio controls><source src="https://img.nga.cn/attachments/mon_202508/28/-7Q2w-ikt3Zf.mp3?duration=39″" type="audio/mp3" /></audio>"""
     )
 
     # album
     content_html = "[album=查看全部附件]<br>./mon_202508/30/-d1rcQ2w-b5p0K2kT1kSg0-sg.jpg<br>./mon_202508/30/-d1rcQ2w-6m9qZfT3cSlc-sg.jpg[/album]"
     assert (
         NgaToolkit.format_content_html(content_html)
-        == """<details><summary>查看全部附件</summary><br><img src="https://img.nga.178.com/attachments/mon_202508/30/-d1rcQ2w-b5p0K2kT1kSg0-sg.jpg"></img><br><img src="https://img.nga.178.com/attachments/mon_202508/30/-d1rcQ2w-6m9qZfT3cSlc-sg.jpg"></img></details>"""
+        == """<details><summary>查看全部附件</summary><br><img src="https://img.nga.cn/attachments/mon_202508/30/-d1rcQ2w-b5p0K2kT1kSg0-sg.jpg"></img><br><img src="https://img.nga.cn/attachments/mon_202508/30/-d1rcQ2w-6m9qZfT3cSlc-sg.jpg"></img></details>"""
     )
 
 
