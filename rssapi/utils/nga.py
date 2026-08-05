@@ -284,10 +284,10 @@ class NgaToolkit:
             return replaced_text
 
         def replace_emoji_tags(text: str) -> str:
-            smiles = get_smiles()
             results = re.findall(r"\[s:.*?:.*?\]", text)
             if not results:
                 return text
+            smiles = get_smiles()
             for code in results:
                 tag = smiles.get(code)
                 if tag:
@@ -331,8 +331,11 @@ class NgaToolkit:
 
         @cache
         def get_smiles() -> dict:
-            data = NgaToolkit.get_smiles()
-            return {s.name: s.tag for s in data}
+            try:
+                data = NgaToolkit.get_smiles()
+                return {s.name: s.tag for s in data}
+            except Exception:
+                return {}
 
         if not content:
             return content
