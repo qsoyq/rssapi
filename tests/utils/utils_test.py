@@ -1,6 +1,10 @@
 import os
 import socket
 
+import pytest
+
+from rssapi.utils.nga import NgaToolkit
+
 
 def _is_host_reachable(host: str, port: int = 443, timeout: float = 3.0) -> bool:
     try:
@@ -8,12 +12,6 @@ def _is_host_reachable(host: str, port: int = 443, timeout: float = 3.0) -> bool
         return True
     except OSError:
         return False
-
-
-
-import pytest
-
-from rssapi.utils.nga import NgaToolkit
 
 
 @pytest.mark.asyncio
