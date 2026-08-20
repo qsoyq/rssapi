@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from twitter_cli.exceptions import TwitterAPIError
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
+from rssapi.applications.twitter.browser_fallback import TwitterBrowserFallbackError
 from rssapi.applications.twitter.types import Tweet
 from rssapi.applications.twitter.utils import (
     AuthorScreenNameMapping,
@@ -72,6 +73,15 @@ async def _fetch_and_convert(
     except json.JSONDecodeError as e:
         logger.error(f"failed to parse Twitter response: {e}")
         raise HTTPException(status_code=500, detail="Failed to parse Twitter response")
+    except TwitterBrowserFallbackError as e:
+        logger.error(
+            "Twitter browser fallback unavailable for %s: kind=%s status=%s",
+            label,
+            e.kind,
+            e.status_code,
+            exc_info=True,
+        )
+        raise HTTPException(status_code=e.status_code, detail="Twitter browser fallback unavailable") from e
     except TwitterAPIError as e:
         logger.error(f"request twitter api error with label {label}: {e}")
         raise HTTPException(status_code=e.status_code, detail=e.message)

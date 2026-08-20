@@ -10,6 +10,15 @@ from rssapi.applications.twitter.types import Tweet
 logger = logging.getLogger(__file__)
 
 
+class TwitterBrowserFallbackError(RuntimeError):
+    """Raised when the browser fallback cannot produce Twitter posts."""
+
+    def __init__(self, message: str, *, kind: str, status_code: int = 502):
+        super().__init__(message)
+        self.kind = kind
+        self.status_code = status_code
+
+
 def _latest_search_url(screen_name: str) -> str:
     query = urllib.parse.quote(f"from:{screen_name} -filter:replies")
     return f"https://x.com/search?q={query}&src=typed_query&f=live"
@@ -136,29 +145,66 @@ def fetch_user_posts_with_browser(screen_name: str, max_tweets: int, cookie_stri
         ("public profile", f"https://x.com/{screen_name}", ""),
     ]
 
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
-        try:
-            for label, url, candidate_cookies in candidates:
-                if label.startswith("authenticated") and not candidate_cookies:
-                    continue
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except Exception as exc:
+                raise TwitterBrowserFallbackError(
+                    "Twitter browser fallback could not launch Chromium",
+                    kind="startup",
+                    status_code=503,
+                ) from exc
 
-                context = browser.new_context()
-                try:
-                    if candidate_cookies:
-                        context.add_cookies(cast(Any, _cookies_by_str(candidate_cookies, "https://x.com")))
-                    payloads = _tweet_payloads_from_url(context, url, screen_name, max_tweets, label)
+            try:
+                for label, url, candidate_cookies in candidates:
+                    if label.startswith("authenticated") and not candidate_cookies:
+                        continue
+
+                    context = browser.new_context()
+                    try:
+                        if candidate_cookies:
+                            context.add_cookies(cast(Any, _cookies_by_str(candidate_cookies, "https://x.com")))
+                        payloads = _tweet_payloads_from_url(context, url, screen_name, max_tweets, label)
+                        if payloads:
+                            logger.info(f"Twitter browser fallback selected candidate: {label}")
+                            break
+                    finally:
+                        context.close()
+
                     if payloads:
-                        logger.info(f"Twitter browser fallback selected candidate: {label}")
                         break
-                finally:
-                    context.close()
-
-                if payloads:
-                    break
-        finally:
-            browser.close()
+            except TwitterBrowserFallbackError:
+                raise
+            except PlaywrightTimeoutError as exc:
+                raise TwitterBrowserFallbackError(
+                    "Twitter browser fallback timed out while rendering the profile",
+                    kind="timeout",
+                    status_code=502,
+                ) from exc
+            except Exception as exc:
+                raise TwitterBrowserFallbackError(
+                    "Twitter browser fallback failed while rendering the profile",
+                    kind="rendering",
+                    status_code=502,
+                ) from exc
+            finally:
+                browser.close()
+    except TwitterBrowserFallbackError:
+        raise
+    except Exception as exc:
+        raise TwitterBrowserFallbackError(
+            "Twitter browser fallback could not start Playwright",
+            kind="startup",
+            status_code=503,
+        ) from exc
 
     tweets = [Tweet.model_validate(payload) for payload in payloads[:max_tweets]]
+    if not tweets:
+        raise TwitterBrowserFallbackError(
+            f"Twitter browser fallback returned no posts for {screen_name}",
+            kind="no_results",
+            status_code=502,
+        )
     logger.info(f"Twitter browser fallback fetched {len(tweets)} rendered tweets for {screen_name}")
     return tweets
