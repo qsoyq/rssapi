@@ -1,3 +1,4 @@
+import importlib
 import logging
 import sys
 import types
@@ -5,6 +6,12 @@ from types import SimpleNamespace
 from typing import Any, TypedDict, cast
 
 import pytest
+from bs4 import BeautifulSoup
+
+get_ondemand_file_url = cast(
+    Any,
+    importlib.import_module("x_client_transaction.utils").get_ondemand_file_url,
+)
 
 twitter_cli_module = cast(Any, sys.modules.setdefault("twitter_cli", types.ModuleType("twitter_cli")))
 twitter_auth_module = cast(Any, sys.modules.setdefault("twitter_cli.auth", types.ModuleType("twitter_cli.auth")))
@@ -168,6 +175,22 @@ def test_build_twitter_client_prefers_explicit_tokens(monkeypatch: pytest.Monkey
         "rate_limit_config": {"limit": 10},
         "cookie_string": "auth_token=token; ct0=csrf",
     }
+
+
+def test_my_twitter_client_skips_eager_transaction_init_when_ondemand_url_is_missing(
+    caplog: pytest.LogCaptureFixture,
+):
+    homepage = BeautifulSoup('<html><head><script src="/static/app.js"></script></head></html>', "html.parser")
+    assert get_ondemand_file_url(homepage) is None
+
+    client = object.__new__(twitter_utils.MyTwitterClient)
+    client._ct_init_attempted = False
+
+    with caplog.at_level(logging.WARNING):
+        client._ensure_client_transaction()
+
+    assert client._ct_init_attempted is True
+    assert "Failed to init ClientTransaction" not in caplog.text
 
 
 def test_install_twitter_client_429_no_retry_patch_disables_http_429_retry_for_api_request(
