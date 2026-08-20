@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any, TypedDict, cast
 
 import pytest
+from fastapi import HTTPException
 
 twitter_cli_module = cast(Any, sys.modules.setdefault("twitter_cli", types.ModuleType("twitter_cli")))
 twitter_auth_module = cast(Any, sys.modules.setdefault("twitter_cli.auth", types.ModuleType("twitter_cli.auth")))
@@ -53,6 +54,8 @@ twitter_cli_module.exceptions = twitter_exceptions_module
 
 from rssapi.applications.twitter import patch as twitter_patch  # noqa: E402
 from rssapi.applications.twitter import utils as twitter_utils  # noqa: E402
+from rssapi.applications.twitter.browser_fallback import TwitterBrowserFallbackError  # noqa: E402
+from rssapi.applications.twitter.feed import _fetch_and_convert  # noqa: E402
 from rssapi.applications.twitter.feed import _tweets_to_jsonfeed_items  # noqa: E402
 from rssapi.applications.twitter.types import Tweet  # noqa: E402
 from rssapi.applications.twitter.utils import (  # noqa: E402
@@ -405,7 +408,7 @@ def test_fetch_user_posts_sync_falls_back_to_browser_on_429(monkeypatch: pytest.
     }
 
 
-def test_fetch_user_posts_sync_reraises_429_when_browser_fallback_is_empty(monkeypatch: pytest.MonkeyPatch):
+def test_fetch_user_posts_sync_raises_fallback_error_when_browser_fallback_is_empty(monkeypatch: pytest.MonkeyPatch):
     original_error = twitter_utils.TwitterAPIError(429, "Twitter API error 429: Rate limit exceeded")
 
     class FakeClient:
@@ -420,10 +423,40 @@ def test_fetch_user_posts_sync_reraises_429_when_browser_fallback_is_empty(monke
     monkeypatch.setattr(twitter_utils, "fetch_user_posts_with_browser", lambda *args, **kwargs: [])
     twitter_utils._fetch_user_profile.cache_clear()
 
-    with pytest.raises(twitter_utils.TwitterAPIError) as exc_info:
+    with pytest.raises(twitter_utils.TwitterBrowserFallbackError) as exc_info:
         twitter_utils._fetch_user_posts_sync("targetuser", 5, "auth_token=token; ct0=csrf")
 
-    assert exc_info.value is original_error
+    assert exc_info.value.kind == "no_results"
+    assert exc_info.value.status_code == 502
+    assert original_error.status_code == 429
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kind", "status_code"),
+    [("startup", 503), ("timeout", 502), ("no_results", 502)],
+)
+async def test_fetch_and_convert_maps_browser_fallback_failures_to_explicit_http_status(kind: str, status_code: int):
+    async def fail_fetcher() -> list[Tweet]:
+        raise TwitterBrowserFallbackError("fallback failed", kind=kind, status_code=status_code)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await _fetch_and_convert(fail_fetcher, "user posts (targetuser)")
+
+    assert exc_info.value.status_code == status_code
+    assert exc_info.value.detail == "Twitter browser fallback unavailable"
+
+
+@pytest.mark.asyncio
+async def test_fetch_and_convert_preserves_twitter_api_error_status_code():
+    async def fail_fetcher() -> list[Tweet]:
+        raise twitter_utils.TwitterAPIError(429, "Twitter API error 429: Rate limited")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await _fetch_and_convert(fail_fetcher, "user posts (targetuser)")
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.detail == "Twitter API error 429: Rate limited"
 
 
 def test_content_html_from_tweet_renders_photo_and_animated_gif_as_image():

@@ -15,7 +15,10 @@ from twitter_cli.config import load_config
 from twitter_cli.exceptions import TwitterAPIError
 from twitter_cli.models import UserProfile
 
-from rssapi.applications.twitter.browser_fallback import fetch_user_posts_with_browser
+from rssapi.applications.twitter.browser_fallback import (
+    TwitterBrowserFallbackError,
+    fetch_user_posts_with_browser,
+)
 from rssapi.applications.twitter.client_transaction import client_transaction_signer
 from rssapi.applications.twitter.patch import install_twitter_client_429_no_retry_patch
 from rssapi.applications.twitter.types import Tweet
@@ -206,9 +209,30 @@ def _fetch_user_posts_sync(screen_name: str, max_tweets: int, cookies: str) -> l
         # The transaction signer keeps a Sync Playwright driver open. Close it before starting the
         # browser fallback because Playwright does not allow nested sync drivers on the same thread.
         client_transaction_signer.close()
-        browser_tweets = fetch_user_posts_with_browser(screen_name, max_tweets, cookies)
-        if not browser_tweets:
+        try:
+            browser_tweets = fetch_user_posts_with_browser(screen_name, max_tweets, cookies)
+        except TwitterBrowserFallbackError as fallback_error:
+            logger.error(
+                "Twitter UserTweets fallback failed after 429: screen_name=%s kind=%s status=%s",
+                screen_name,
+                fallback_error.kind,
+                fallback_error.status_code,
+                exc_info=True,
+            )
             raise
+        if not browser_tweets:
+            empty_fallback_error = TwitterBrowserFallbackError(
+                f"Twitter browser fallback returned no posts for {screen_name}",
+                kind="no_results",
+                status_code=502,
+            )
+            logger.error(
+                "Twitter UserTweets fallback failed after 429: screen_name=%s kind=%s status=%s",
+                screen_name,
+                empty_fallback_error.kind,
+                empty_fallback_error.status_code,
+            )
+            raise empty_fallback_error
         return browser_tweets
 
     normalized_screen_name = screen_name.casefold()
