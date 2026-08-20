@@ -339,6 +339,16 @@ def new_get_instructions(
 
 
 class MyTwitterClient(TwitterClient):
+    def _ensure_client_transaction(self) -> None:
+        """Disable twitter-cli's eager ClientTransaction bootstrap.
+
+        twitter-cli 0.8.4 passes a missing ondemand URL to its HTTP client, which
+        raises while constructing the native signer. rssapi has an independent
+        Playwright signer in ``_build_headers`` and can safely fall back to
+        requests without the optional transaction header when it is unavailable.
+        """
+        self._ct_init_attempted = True
+
     def _build_headers(self, url="", method="GET"):
         headers = super()._build_headers(url=url, method=method)
         if (
