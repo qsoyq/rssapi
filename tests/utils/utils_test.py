@@ -1,8 +1,11 @@
 import os
 import socket
+from collections.abc import Awaitable, Callable
+from typing import cast
 
 import pytest
 
+import rssapi.utils.nga as nga
 from rssapi.utils.nga import NgaToolkit
 
 
@@ -134,7 +137,7 @@ def test_nga_content_html_format():
     content_html = "[s:ac:goodjob]"
     formatted = NgaToolkit.format_content_html(content_html)
     if formatted != "[s:ac:goodjob]":
-        assert formatted == """<img src="https://img4.nga.178.com/ngabbs/post/smile/ac1.png">"""
+        assert formatted == """<img src="https://img4.nga.cn/ngabbs/post/smile/ac1.png">"""
 
     # del
     content_html = "[del]Example[/del]"
@@ -170,6 +173,37 @@ def test_nga_content_html_format():
 
 
 @pytest.mark.asyncio
+async def test_nga_get_sections_uses_current_image_cdn(monkeypatch: pytest.MonkeyPatch):
+    requested_urls: list[str] = []
+
+    class Response:
+        text = "x" * 33 + '{"data":{"0":{"all":{}}}}'
+
+        def raise_for_status(self):
+            return None
+
+    class AsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_value, traceback):
+            return None
+
+        async def get(self, url):
+            requested_urls.append(url)
+            return Response()
+
+    monkeypatch.setattr(nga.httpx, "AsyncClient", AsyncClient)
+    get_sections = cast(Callable[[], Awaitable[object]], getattr(NgaToolkit.get_sections, "__wrapped__"))
+    await get_sections()
+
+    assert requested_urls == ["https://img4.nga.cn/proxy/cache_attach/bbs_index_data.js"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.nga_delay
 async def test_nga_content_html_format_bad_case():
     """仅处理一些殊的 badcase"""
@@ -201,7 +235,7 @@ async def test_nga_content_html_format_bad_case():
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(not _is_host_reachable("img4.nga.178.com"), reason="img4.nga.178.com unreachable")
+@pytest.mark.skipif(not _is_host_reachable("img4.nga.cn"), reason="img4.nga.cn unreachable")
 async def test_nga_emoji_replace():
     data = NgaToolkit.get_smiles()
     smiles = {s.name: s.tag for s in data}

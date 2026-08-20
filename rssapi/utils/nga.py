@@ -25,6 +25,7 @@ from rssapi.core.settings import settings
 from rssapi.utils.bs4 import select_one_by
 
 logger = logging.getLogger(__name__)
+NGA_IMAGE_CDN_BASE_URL = "https://img4.nga.cn"
 
 
 class NgaToolkit:
@@ -118,7 +119,7 @@ class NgaToolkit:
     async def get_sections() -> GetForumSectionsRes:
         """获取论坛分区信息"""
         sections = []
-        url = "https://img4.nga.178.com/proxy/cache_attach/bbs_index_data.js"
+        url = f"{NGA_IMAGE_CDN_BASE_URL}/proxy/cache_attach/bbs_index_data.js"
         async with httpx.AsyncClient(verify=False) as client:
             resp = await client.get(url)
             resp.raise_for_status()
@@ -128,7 +129,7 @@ class NgaToolkit:
             for item in section["content"].values():
                 for detail in item["content"].values():
                     id_ = detail.get("stid") or detail["fid"]
-                    icon = f"https://img4.nga.178.com/proxy/cache_attach/ficon/{id_}u.png"
+                    icon = f"{NGA_IMAGE_CDN_BASE_URL}/proxy/cache_attach/ficon/{id_}u.png"
                     sections.append(
                         ForumSectionIndex(
                             fid=detail["fid"],
@@ -147,6 +148,12 @@ class NgaToolkit:
         with httpx.Client(verify=False) as client:
             injection = r"""
             var window = globalThis;
+            var location = {
+                protocol: 'https:',
+                host: 'img4.nga.cn',
+                hash: ''
+            };
+            var __ATTACH_BASE_VIEW_SEC = 'img4.nga.cn';
             __NUKE = {
                 addCss: function(){}
             }
@@ -161,7 +168,7 @@ class NgaToolkit:
             }
             __GP = {}
             """
-            url = "https://img4.nga.178.com/common_res/js_bbscode_core.js"
+            url = f"{NGA_IMAGE_CDN_BASE_URL}/common_res/js_bbscode_core.js"
             res = client.get(url)
             if res.is_error:
                 logger.warning(f"can't fetch nga smiles: {res.text}")
@@ -180,7 +187,7 @@ class NgaToolkit:
                         continue
                     _category = "" if category == "0" else category
                     name = f"[s:{_category}:{code}]"
-                    url = f"https://img4.nga.178.com/ngabbs/post/smile/{detail}"
+                    url = f"{NGA_IMAGE_CDN_BASE_URL}/ngabbs/post/smile/{detail}"
                     tag = f"""<img src="{url}">"""
                     data.append(NGASmile(name=name, url=url, tag=tag))
             logger.info("get nga smiles done.")
