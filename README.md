@@ -216,4 +216,12 @@ Each data source can configure cache size (`*_MAXSIZE`, max entries) and expiry 
 | `RSS_DOUYIN_USER_FEEDS_CACHE_TTL` | `1800` | 用户作品列表缓存 TTL |
 | `RSS_DOUYIN_USER_FEEDS_CACHE_MAXSIZE` | `4096` | 用户作品列表缓存条目数 |
 
+#### Instagram (`RSS_INSTAGRAM_`)
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `RSS_INSTAGRAM_APP_ID` | `936619743392459` | Instagram 公开 Web App ID |
+| `RSS_INSTAGRAM_USER_POSTS_CACHE_TTL` | `10800` | 用户贴文列表缓存 TTL（随机 3–6 小时） |
+| `RSS_INSTAGRAM_USER_POSTS_CACHE_MAXSIZE` | `4096` | 用户贴文列表缓存条目数 |
+
 > 注：缓存配置在进程启动时读取，修改环境变量后需要重启服务才能生效。
