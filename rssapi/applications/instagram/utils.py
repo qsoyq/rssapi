@@ -249,11 +249,13 @@ def post_to_jsonfeed_item(post: dict[str, Any], profile_user: dict[str, Any], us
 
     media_html, attachments = _post_media_html(post)
     content_parts: list[str] = []
-    if caption:
-        safe_caption = escape(caption).replace("\n", "<br>")
-        content_parts.append(f"<p>{safe_caption}</p>")
     if media_html:
         content_parts.append(f"<div>{media_html}</div>")
+
+    body_parts: list[str] = []
+    if caption:
+        safe_caption = escape(caption).replace("\n", "<br>")
+        body_parts.append(f"<p>{safe_caption}</p>")
 
     metrics: list[str] = []
     if isinstance(post.get("like_count"), int):
@@ -264,7 +266,9 @@ def post_to_jsonfeed_item(post: dict[str, Any], profile_user: dict[str, Any], us
     if isinstance(location, dict) and location.get("name"):
         metrics.append(f"📍 {escape(str(location['name']))}")
     if metrics:
-        content_parts.append(f"<p>{' · '.join(metrics)}</p>")
+        body_parts.append(f"<p>{' · '.join(metrics)}</p>")
+    if body_parts:
+        content_parts.append(f"<details><summary>查看正文</summary>{''.join(body_parts)}</details>")
     if not content_parts:
         content_parts.append("<p>Instagram post</p>")
 

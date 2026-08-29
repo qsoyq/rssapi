@@ -151,9 +151,16 @@ def test_post_to_jsonfeed_item_renders_image_caption_metrics_and_location() -> N
     assert item.date_published == "2023-11-14T22:13:21+00:00"
     assert item.author and item.author.name == "Helen"
     assert item.image and str(item.image).startswith("https://cdn.example/image-1.jpg")
-    assert "&lt;First line&gt;<br>#travel" in (item.content_html or "")
-    assert 'src="https://cdn.example/image-1.jpg?x=1&amp;y=2"' in (item.content_html or "")
-    assert "❤️ 1 · 💬 2 · 📍 A&amp;B" in (item.content_html or "")
+    content_html = item.content_html or ""
+    assert content_html.index("<div>") < content_html.index("<details>")
+    assert content_html.startswith('<div><img src="https://cdn.example/image-1.jpg?x=1&amp;y=2"')
+    assert content_html.endswith(
+        "<details><summary>查看正文</summary>"
+        "<p>&lt;First line&gt;<br>#travel</p>"
+        "<p>❤️ 1 · 💬 2 · 📍 A&amp;B</p>"
+        "</details>"
+    )
+    assert " open" not in content_html
 
 
 def test_post_to_jsonfeed_item_renders_video_and_mixed_carousel() -> None:
@@ -169,12 +176,46 @@ def test_post_to_jsonfeed_item_renders_video_and_mixed_carousel() -> None:
 
     item = post_to_jsonfeed_item(post, _user(), "he.le_nn")
 
-    assert (item.content_html or "").count("<img ") == 1
-    assert (item.content_html or "").count("<video ") == 1
-    assert 'poster="https://cdn.example/poster.jpg"' in (item.content_html or "")
+    content_html = item.content_html or ""
+    assert content_html.count("<img ") == 1
+    assert content_html.count("<video ") == 1
+    assert content_html.index("<div>") < content_html.index("<details>")
+    assert content_html.index("<img ") < content_html.index("<video ")
+    assert 'poster="https://cdn.example/poster.jpg"' in content_html
+    assert "<details><summary>查看正文</summary>" in content_html
     assert item.attachments and len(item.attachments) == 1
     assert item.attachments[0].mime_type == "video/mp4"
     assert str(item.attachments[0].url).startswith("https://cdn.example/video.mp4")
+
+
+def test_post_to_jsonfeed_item_renders_collapsible_body_without_media() -> None:
+    post = {
+        "id": "text-only-1",
+        "code": "TextOnly1",
+        "caption": {"text": "A text-only post"},
+        "like_count": 3,
+        "comment_count": 4,
+        "location": {"name": "Somewhere"},
+        "user": _user(),
+    }
+
+    item = post_to_jsonfeed_item(post, _user(), "he.le_nn")
+
+    assert item.content_html == (
+        "<details><summary>查看正文</summary><p>A text-only post</p><p>❤️ 3 · 💬 4 · 📍 Somewhere</p></details>"
+    )
+
+
+def test_post_to_jsonfeed_item_does_not_render_empty_details_for_media_only() -> None:
+    post = _image_post(4)
+    post.pop("caption")
+    post.pop("like_count")
+    post.pop("comment_count")
+
+    item = post_to_jsonfeed_item(post, _user(), "he.le_nn")
+
+    assert item.content_html and item.content_html.startswith("<div><img ")
+    assert "<details>" not in item.content_html
 
 
 def test_post_to_jsonfeed_item_handles_missing_caption_and_unknown_media() -> None:
@@ -361,6 +402,8 @@ def test_instagram_route_returns_json_feed_and_uses_cache(
     assert data["author"]["url"] == f"https://www.instagram.com/{username}/"
     assert data["home_page_url"] == ""
     assert data["items"][0]["url"] == "https://www.instagram.com/p/Code1/"
+    content_html = data["items"][0]["content_html"]
+    assert content_html.index("</details>") < content_html.index("查看原贴")
     assert second_response.status_code == 200
     assert len(instagram_upstream.requests) == 1
 
