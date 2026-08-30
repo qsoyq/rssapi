@@ -345,6 +345,7 @@ async def test_fetch_user_feed_caps_pages_when_upstream_returns_no_new_items(
         ("html_user", 200, "<html>login</html>", 502),
         ("invalid_user", 200, {"status": "fail", "items": []}, 502),
         ("missing_items_user", 200, {"status": "ok"}, 502),
+        ("soft_login_user", 200, {"status": "ok", "items": []}, 401),
         ("login_redirect_user", 302, "", 401),
     ],
 )
@@ -361,7 +362,7 @@ async def test_fetch_user_feed_maps_upstream_errors(
         await fetch_user_feed_data(username, 12, base_url=instagram_upstream.base_url)
 
     assert exc_info.value.status_code == expected_status
-    if status_code == 302:
+    if expected_status == 401:
         assert exc_info.value.detail == (
             "Instagram authentication required; provide cookies or X-Instagram-Cookie "
             "containing ds_user_id and sessionid"
@@ -425,6 +426,23 @@ def test_instagram_route_returns_json_feed_and_uses_cache(
     assert content_html.index("</details>") < content_html.index("查看原贴")
     assert second_response.status_code == 200
     assert len(instagram_upstream.requests) == 1
+
+
+def test_instagram_route_rejects_soft_login_response(
+    instagram_upstream: LocalInstagramUpstream,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    username = "soft_login_route_user"
+    instagram_upstream.add(username, None, {"status": "ok", "items": []})
+    monkeypatch.setattr(instagram_utils, "INSTAGRAM_API_BASE_URL", instagram_upstream.base_url)
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/rss/instagram/{username}/posts")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == (
+        "Instagram authentication required; provide cookies or X-Instagram-Cookie containing ds_user_id and sessionid"
+    )
 
 
 @pytest.mark.parametrize(
