@@ -58,6 +58,16 @@ def _upstream_error(status_code: int, username: str) -> HTTPException:
     return HTTPException(status_code=502, detail=f"Instagram upstream returned HTTP {status_code}")
 
 
+def _authentication_required() -> HTTPException:
+    return HTTPException(
+        status_code=401,
+        detail=(
+            "Instagram authentication required; provide cookies or X-Instagram-Cookie "
+            "containing ds_user_id and sessionid"
+        ),
+    )
+
+
 async def _fetch_page(
     client: httpx.AsyncClient,
     username: str,
@@ -80,13 +90,7 @@ async def _fetch_page(
         raise HTTPException(status_code=502, detail="Failed to request Instagram upstream") from exc
 
     if response.status_code == 302:
-        raise HTTPException(
-            status_code=401,
-            detail=(
-                "Instagram authentication required; provide cookies or X-Instagram-Cookie "
-                "containing ds_user_id and sessionid"
-            ),
-        )
+        raise _authentication_required()
     if response.status_code >= 400:
         raise _upstream_error(response.status_code, username)
 
@@ -99,6 +103,8 @@ async def _fetch_page(
         raise HTTPException(status_code=502, detail="Instagram upstream returned an invalid payload")
     if not isinstance(payload.get("items"), list):
         raise HTTPException(status_code=502, detail="Instagram upstream payload is missing items")
+    if not isinstance(payload.get("user"), dict):
+        raise _authentication_required()
     return payload
 
 
