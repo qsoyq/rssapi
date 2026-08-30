@@ -76,6 +76,7 @@ class LocalInstagramUpstream:
                         "cursor": cursor,
                         "count": query.get("count", [None])[0],
                         "app_id": self.headers.get("X-IG-App-ID"),
+                        "cookie": self.headers.get("Cookie"),
                     }
                 )
                 status_code, body, delay = controller.responses.get(
@@ -344,6 +345,7 @@ async def test_fetch_user_feed_caps_pages_when_upstream_returns_no_new_items(
         ("html_user", 200, "<html>login</html>", 502),
         ("invalid_user", 200, {"status": "fail", "items": []}, 502),
         ("missing_items_user", 200, {"status": "ok"}, 502),
+        ("login_redirect_user", 302, "", 401),
     ],
 )
 async def test_fetch_user_feed_maps_upstream_errors(
@@ -359,6 +361,23 @@ async def test_fetch_user_feed_maps_upstream_errors(
         await fetch_user_feed_data(username, 12, base_url=instagram_upstream.base_url)
 
     assert exc_info.value.status_code == expected_status
+    if status_code == 302:
+        assert exc_info.value.detail == (
+            "Instagram authentication required; provide cookies or X-Instagram-Cookie "
+            "containing ds_user_id and sessionid"
+        )
+
+
+@pytest.mark.asyncio
+async def test_fetch_user_feed_sends_cookies(instagram_upstream: LocalInstagramUpstream) -> None:
+    username = "cookie_user"
+    cookies = "ds_user_id=123; sessionid=abc"
+    instagram_upstream.add(username, None, _payload(username, [_image_post(1, username)]))
+
+    _, items = await fetch_user_feed_data(username, 12, base_url=instagram_upstream.base_url, cookies=cookies)
+
+    assert len(items) == 1
+    assert instagram_upstream.requests[0]["cookie"] == cookies
 
 
 @pytest.mark.asyncio
@@ -406,6 +425,37 @@ def test_instagram_route_returns_json_feed_and_uses_cache(
     assert content_html.index("</details>") < content_html.index("查看原贴")
     assert second_response.status_code == 200
     assert len(instagram_upstream.requests) == 1
+
+
+@pytest.mark.parametrize(
+    ("params", "headers", "expected_cookie"),
+    [
+        ({"cookies": "ds_user_id=query; sessionid=query"}, {}, "ds_user_id=query; sessionid=query"),
+        ({}, {"X-Instagram-Cookie": "ds_user_id=header; sessionid=header"}, "ds_user_id=header; sessionid=header"),
+        (
+            {"cookies": "ds_user_id=query; sessionid=query"},
+            {"X-Instagram-Cookie": "ds_user_id=header; sessionid=header"},
+            "ds_user_id=query; sessionid=query",
+        ),
+    ],
+)
+def test_instagram_route_accepts_cookies_from_query_or_header(
+    instagram_upstream: LocalInstagramUpstream,
+    monkeypatch: pytest.MonkeyPatch,
+    params: dict[str, str],
+    headers: dict[str, str],
+    expected_cookie: str,
+) -> None:
+    username = f"cookie_route_{len(params)}_{len(headers)}"
+    instagram_upstream.add(username, None, _payload(username, [_image_post(1, username)]))
+    monkeypatch.setattr(instagram_utils, "INSTAGRAM_API_BASE_URL", instagram_upstream.base_url)
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/rss/instagram/{username}/posts", params=params, headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert instagram_upstream.requests[0]["cookie"] == expected_cookie
+    assert "cookies=" not in response.json()["feed_url"]
 
 
 @pytest.mark.parametrize("username", ["bad-name", "a" * 31])
