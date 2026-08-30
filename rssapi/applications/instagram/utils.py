@@ -27,13 +27,16 @@ INSTAGRAM_USER_AGENT = (
 )
 
 
-def _instagram_headers() -> dict[str, str]:
-    return {
+def _instagram_headers(cookies: str | None = None) -> dict[str, str]:
+    headers = {
         "Accept": "application/json, text/plain, */*",
         "Referer": f"{INSTAGRAM_PROFILE_BASE_URL}/",
         "User-Agent": INSTAGRAM_USER_AGENT,
         "X-IG-App-ID": settings.instagram.app_id,
     }
+    if cookies:
+        headers["Cookie"] = cookies
+    return headers
 
 
 def validated_http_url(value: Any) -> str | None:
@@ -59,6 +62,7 @@ async def _fetch_page(
     client: httpx.AsyncClient,
     username: str,
     cursor: str | None,
+    cookies: str | None = None,
 ) -> dict[str, Any]:
     params: dict[str, int | str] = {"count": 12}
     if cursor:
@@ -68,13 +72,21 @@ async def _fetch_page(
         response = await client.get(
             f"/api/v1/feed/user/{username}/username/",
             params=params,
-            headers=_instagram_headers(),
+            headers=_instagram_headers(cookies),
         )
     except httpx.TimeoutException as exc:
         raise HTTPException(status_code=504, detail="Instagram upstream request timed out") from exc
     except httpx.RequestError as exc:
         raise HTTPException(status_code=502, detail="Failed to request Instagram upstream") from exc
 
+    if response.status_code == 302:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Instagram authentication required; provide cookies or X-Instagram-Cookie "
+                "containing ds_user_id and sessionid"
+            ),
+        )
     if response.status_code >= 400:
         raise _upstream_error(response.status_code, username)
 
@@ -96,6 +108,7 @@ async def fetch_user_feed_data(
     *,
     base_url: str | None = None,
     timeout: float = 20.0,
+    cookies: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     normalized_username = username.lower()
     items: list[dict[str, Any]] = []
@@ -112,7 +125,7 @@ async def fetch_user_feed_data(
         timeout=httpx.Timeout(timeout),
     ) as client:
         while len(items) < max_posts and page_count < max_pages:
-            payload = await _fetch_page(client, normalized_username, cursor)
+            payload = await _fetch_page(client, normalized_username, cursor, cookies)
             page_count += 1
             page_user = payload.get("user")
             if not user and isinstance(page_user, dict):
