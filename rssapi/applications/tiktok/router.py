@@ -1,5 +1,4 @@
 import asyncio
-import ipaddress
 import re
 from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
@@ -97,19 +96,15 @@ def _resolve_tiktok_cookie(
     cookie_header: str | None,
     *,
     query_enabled: bool | None = None,
-) -> str | None:
-    if cookie_query is not None:
-        enabled = settings.tiktok.cookie_query_enabled if query_enabled is None else query_enabled
-        client_host = req.client.host if req.client is not None else ""
-        try:
-            is_loopback = ipaddress.ip_address(client_host).is_loopback
-        except ValueError:
-            is_loopback = False
-        if not enabled or not is_loopback:
-            raise HTTPException(
-                status_code=403, detail="TikTok Cookie query is only available for enabled loopback access"
-            )
-    return cookie_header if cookie_header is not None else cookie_query
+) -> str:
+    if cookie_header is not None:
+        return cookie_header
+    if cookie_query is None:
+        raise HTTPException(status_code=400, detail="TikTok Cookie is required")
+    enabled = settings.tiktok.cookie_query_enabled if query_enabled is None else query_enabled
+    if not enabled:
+        raise HTTPException(status_code=403, detail="TikTok Cookie query is disabled")
+    return cookie_query
 
 
 def _feed_url_without_cookie(req: Request) -> str:
@@ -266,7 +261,7 @@ async def media_v2(
         alias="cookies",
         min_length=1,
         max_length=32768,
-        description="TikTok Cookie；仅在配置启用且请求来自 loopback 时接受",
+        description="TikTok Cookie；配置启用后接受来自任意客户端的请求",
     ),
     cookie_header: str | None = Header(
         None,
@@ -311,7 +306,7 @@ async def posts_v2(
         alias="cookies",
         min_length=1,
         max_length=32768,
-        description="TikTok Cookie；仅在配置启用且请求来自 loopback 时接受",
+        description="TikTok Cookie；配置启用后接受来自任意客户端的请求",
     ),
     cookie_header: str | None = Header(
         None,

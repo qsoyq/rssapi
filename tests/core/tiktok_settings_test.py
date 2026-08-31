@@ -10,7 +10,7 @@ def test_tiktok_playwright_defaults() -> None:
     assert settings.playwright_concurrency == 1
     assert settings.playwright_max_inflight == 3
     assert settings.playwright_storage_state_path is None
-    assert settings.cookie_query_enabled is False
+    assert settings.cookie_query_enabled is True
     assert settings.v2_media_mode == "direct"
 
 
@@ -19,7 +19,7 @@ def test_tiktok_playwright_settings_from_environment(monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("RSS_TIKTOK_PLAYWRIGHT_CONCURRENCY", "2")
     monkeypatch.setenv("RSS_TIKTOK_PLAYWRIGHT_MAX_INFLIGHT", "4")
     monkeypatch.setenv("RSS_TIKTOK_PLAYWRIGHT_STORAGE_STATE_PATH", "/run/secrets/tiktok-state.json")
-    monkeypatch.setenv("RSS_TIKTOK_COOKIE_QUERY_ENABLED", "true")
+    monkeypatch.setenv("RSS_TIKTOK_COOKIE_QUERY_ENABLED", "false")
     monkeypatch.setenv("RSS_TIKTOK_V2_MEDIA_MODE", "proxy")
 
     settings = TikTokSettings()
@@ -28,5 +28,5 @@ def test_tiktok_playwright_settings_from_environment(monkeypatch: pytest.MonkeyP
     assert settings.playwright_concurrency == 2
     assert settings.playwright_max_inflight == 4
     assert settings.playwright_storage_state_path == "/run/secrets/tiktok-state.json"
-    assert settings.cookie_query_enabled is True
+    assert settings.cookie_query_enabled is False
     assert settings.v2_media_mode == "proxy"
