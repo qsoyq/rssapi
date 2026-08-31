@@ -208,6 +208,20 @@ class InstagramSettings(BaseSettings):
     user_posts_cache_maxsize: int = 4096
 
 
+class TikTokSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="RSS_TIKTOK_",
+        env_file=".env",
+        extra="ignore",
+    )
+    user_posts_cache_ttl: int = 10800
+    user_posts_cache_maxsize: int = 4096
+    request_timeout: float = 20.0
+    fetch_concurrency: int = 3
+    media_proxy_concurrency: int = 3
+    proxy: str | None = None
+
+
 class AppSettings(BaseSettings):  # type:ignore
     api_prefix: str = "/api"
     basic_auth_user: str = "root"
@@ -230,6 +244,7 @@ class AppSettings(BaseSettings):  # type:ignore
     douyin: DouyinSettings = DouyinSettings()
     bilibili: BilibiliSettings = BilibiliSettings()
     instagram: InstagramSettings = InstagramSettings()
+    tiktok: TikTokSettings = TikTokSettings()
 
     cloud_scraper_verify: bool = False
     # rss

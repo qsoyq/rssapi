@@ -50,6 +50,7 @@ repos:
                 - fastapi
                 - httpx
                 - asyncache
+                - curl-cffi
                 - pytest
                 - types-pytz
                 - types-cachetools
