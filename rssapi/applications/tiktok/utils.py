@@ -9,9 +9,8 @@ from html import escape
 from typing import Any
 from urllib.parse import urlparse
 
+import curl_cffi
 from asyncache import cached
-from curl_cffi import requests
-from curl_cffi.requests.errors import RequestsError
 from fastapi import HTTPException
 from pydantic import ValidationError
 
@@ -25,6 +24,8 @@ from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
 
 logger = logging.getLogger(__name__)
+requests = curl_cffi.requests
+RequestsError = curl_cffi.requests.errors.RequestsError
 
 TIKTOK_BASE_URL = "https://www.tiktok.com"
 TIKTOK_FAVICON = "https://www.tiktok.com/favicon.ico"
@@ -130,7 +131,7 @@ def _creator_params(username: str, sec_uid: str, device_id: str, cursor: int, co
     }
 
 
-def _response_payload(response: requests.Response, username: str) -> dict[str, Any]:
+def _response_payload(response: Any, username: str) -> dict[str, Any]:
     if response.status_code == 404:
         raise HTTPException(status_code=404, detail=f"TikTok user not found: {username}")
     if response.status_code == 429:
@@ -152,7 +153,7 @@ def _response_payload(response: requests.Response, username: str) -> dict[str, A
 
 
 def _request_json(
-    session: requests.Session,
+    session: Any,
     base_url: str,
     path: str,
     params: dict[str, str],
@@ -178,7 +179,7 @@ def _find_profile_user(value: Any, username: str) -> dict[str, Any] | None:
     return None
 
 
-def _profile_user_from_live_page(response: requests.Response, username: str) -> dict[str, Any]:
+def _profile_user_from_live_page(response: Any, username: str) -> dict[str, Any]:
     if response.status_code == 404:
         raise HTTPException(status_code=404, detail=f"TikTok user not found: {username}")
     if response.status_code == 429:
@@ -212,7 +213,7 @@ def _session_kwargs(timeout: float, proxy: str | None) -> dict[str, Any]:
 
 
 def _fetch_posts_with_session(
-    session: requests.Session,
+    session: Any,
     username: str,
     sec_uid: str,
     max_posts: int,
