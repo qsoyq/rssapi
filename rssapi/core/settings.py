@@ -224,7 +224,7 @@ class TikTokSettings(BaseSettings):
     playwright_concurrency: int = 1
     playwright_max_inflight: int = 3
     playwright_storage_state_path: str | None = None
-    cookie_query_enabled: bool = False
+    cookie_query_enabled: bool = True
     v2_media_mode: Literal["direct", "proxy"] = "direct"
     proxy: str | None = None
 

@@ -517,18 +517,28 @@ def test_cookie_header_parser_preserves_equals_in_value() -> None:
 
 def test_cookie_header_takes_precedence_over_query() -> None:
     assert _resolve_tiktok_cookie(_request(), "query=value", "header=value", query_enabled=True) == "header=value"
+    assert _resolve_tiktok_cookie(_request(), "query=value", "header=value", query_enabled=False) == "header=value"
     assert _resolve_tiktok_cookie(_request(client_host="203.0.113.1"), None, "header=value") == "header=value"
 
 
-def test_cookie_query_requires_explicit_loopback_enablement() -> None:
+def test_cookie_query_requires_explicit_enablement_but_allows_remote_clients() -> None:
     with pytest.raises(HTTPException) as disabled_exc:
         _resolve_tiktok_cookie(_request(), "query=value", None, query_enabled=False)
-    with pytest.raises(HTTPException) as remote_exc:
-        _resolve_tiktok_cookie(_request(client_host="203.0.113.1"), "query=value", None, query_enabled=True)
 
     assert getattr(disabled_exc.value, "status_code", None) == 403
-    assert getattr(remote_exc.value, "status_code", None) == 403
     assert _resolve_tiktok_cookie(_request(), "query=value", None, query_enabled=True) == "query=value"
+    assert (
+        _resolve_tiktok_cookie(_request(client_host="203.0.113.1"), "query=value", None, query_enabled=True)
+        == "query=value"
+    )
+
+
+def test_tiktok_cookie_is_required() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        _resolve_tiktok_cookie(_request(), None, None)
+
+    assert getattr(exc_info.value, "status_code", None) == 400
+    assert getattr(exc_info.value, "detail", None) == "TikTok Cookie is required"
 
 
 def test_proxy_configuration_separates_credentials() -> None:
@@ -570,6 +580,14 @@ def test_v2_feed_url_does_not_echo_cookie_query() -> None:
 
     assert feed_url == "http://testserver/api/rss/tiktok/v2/arimariash/posts?max_posts=12"
     assert "secret" not in feed_url
+
+
+def test_tiktok_v2_route_requires_cookie() -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/rss/tiktok/v2/rako_bear_/posts")
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "TikTok Cookie is required"}
 
 
 @pytest.mark.parametrize("username", ["bad-name", "@bad-name", "a" * 25])
