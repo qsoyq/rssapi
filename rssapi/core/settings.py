@@ -1,5 +1,6 @@
 import importlib.metadata
 import time
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -219,6 +220,12 @@ class TikTokSettings(BaseSettings):
     request_timeout: float = 20.0
     fetch_concurrency: int = 3
     media_proxy_concurrency: int = 3
+    playwright_timeout: float = 35.0
+    playwright_concurrency: int = 1
+    playwright_max_inflight: int = 3
+    playwright_storage_state_path: str | None = None
+    cookie_query_enabled: bool = False
+    v2_media_mode: Literal["direct", "proxy"] = "direct"
     proxy: str | None = None
 
 
