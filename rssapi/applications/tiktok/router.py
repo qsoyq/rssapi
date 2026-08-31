@@ -1,12 +1,15 @@
 import asyncio
+import ipaddress
 import re
 from typing import Any
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
 from fastapi.responses import StreamingResponse
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
+from rssapi.applications.tiktok.browser import TikTokBrowserError, fetch_user_posts_v2_by_cache
 from rssapi.applications.tiktok.utils import (
     TIKTOK_BASE_URL,
     TIKTOK_FAVICON,
@@ -39,6 +42,12 @@ def _media_url(req: Request, username: str, item_id: str, sec_uid: str, max_post
     return _absolute_url(req, path)
 
 
+def _media_url_v2(req: Request, username: str, item_id: str, max_posts: int) -> str:
+    normalized_username = normalize_username(username)
+    path = f"{settings.api_prefix}/rss/tiktok/v2/media/{normalized_username}/{item_id}?max_posts={max_posts}"
+    return _absolute_url(req, path)
+
+
 def _feed_item(
     req: Request,
     item: dict[str, Any],
@@ -51,6 +60,62 @@ def _feed_item(
     sec_uid = str(user.get("secUid") or "")
     media_url = _media_url(req, username, item_id, sec_uid, max_posts) if playable_url and sec_uid else None
     return post_to_jsonfeed_item(item, user, username, media_url=media_url)
+
+
+def _feed_item_v2(
+    req: Request,
+    item: dict[str, Any],
+    user: dict[str, Any],
+    username: str,
+    max_posts: int,
+    media_mode: str | None = None,
+) -> JSONFeedItem:
+    item_id = str(item.get("id") or "")
+    playable_url, _ = video_media(item)
+    effective_media_mode = media_mode or settings.tiktok.v2_media_mode
+    media_url = (
+        _media_url_v2(req, username, item_id, max_posts) if playable_url and effective_media_mode == "proxy" else None
+    )
+    return post_to_jsonfeed_item(item, user, username, media_url=media_url)
+
+
+async def _fetch_user_posts_v2_or_http(
+    username: str,
+    max_posts: int,
+    cookie_header: str | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    try:
+        return await fetch_user_posts_v2_by_cache(username, max_posts, cookie_header=cookie_header)
+    except TikTokBrowserError as exc:
+        headers = {"Retry-After": "5"} if exc.kind == "busy" else None
+        raise HTTPException(status_code=exc.status_code, detail=str(exc), headers=headers) from exc
+
+
+def _resolve_tiktok_cookie(
+    req: Request,
+    cookie_query: str | None,
+    cookie_header: str | None,
+    *,
+    query_enabled: bool | None = None,
+) -> str | None:
+    if cookie_query is not None:
+        enabled = settings.tiktok.cookie_query_enabled if query_enabled is None else query_enabled
+        client_host = req.client.host if req.client is not None else ""
+        try:
+            is_loopback = ipaddress.ip_address(client_host).is_loopback
+        except ValueError:
+            is_loopback = False
+        if not enabled or not is_loopback:
+            raise HTTPException(
+                status_code=403, detail="TikTok Cookie query is only available for enabled loopback access"
+            )
+    return cookie_header if cookie_header is not None else cookie_query
+
+
+def _feed_url_without_cookie(req: Request) -> str:
+    parts = urlsplit(str(req.url))
+    query = urlencode([(key, value) for key, value in req.query_params.multi_items() if key != "cookies"])
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
 
 
 def _validated_range(range_header: str | None) -> str | None:
@@ -178,6 +243,105 @@ async def media(
         raise HTTPException(status_code=404, detail=f"TikTok post has no playable video: {item_id}")
     referer = f"https://www.tiktok.com/@{normalized_username}/video/{item_id}"
     return await proxy_media_response(playable_url, referer, range_header)
+
+
+@router.get(
+    "/v2/media/{username}/{item_id}",
+    summary="TikTok v2 视频媒体代理",
+)
+async def media_v2(
+    req: Request,
+    username: str = Path(
+        ...,
+        min_length=1,
+        max_length=24,
+        pattern=r"^[A-Za-z0-9._]{1,24}$",
+        description="TikTok 用户名，不包含 @ 前缀",
+    ),
+    item_id: str = Path(..., pattern=r"^\d{15,22}$", description="TikTok 帖子 ID"),
+    max_posts: int = Query(12, ge=1, le=50, description="重新解析视频时最多读取的帖子数"),
+    range_header: str | None = Header(None, alias="Range"),
+    cookie_query: str | None = Query(
+        None,
+        alias="cookies",
+        min_length=1,
+        max_length=32768,
+        description="TikTok Cookie；仅在配置启用且请求来自 loopback 时接受",
+    ),
+    cookie_header: str | None = Header(
+        None,
+        alias="X-TikTok-Cookie",
+        min_length=1,
+        max_length=32768,
+        description="TikTok Cookie；同时提供时优先于 cookies Query",
+    ),
+) -> StreamingResponse:
+    normalized_username = normalize_username(username)
+    effective_cookie = _resolve_tiktok_cookie(req, cookie_query, cookie_header)
+    _, posts_data = await _fetch_user_posts_v2_or_http(normalized_username, max_posts, effective_cookie)
+    item = next((post for post in posts_data if str(post.get("id") or "") == item_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"TikTok post not found in feed: {item_id}")
+    playable_url, _ = video_media(item)
+    if not playable_url:
+        raise HTTPException(status_code=404, detail=f"TikTok post has no playable video: {item_id}")
+    referer = f"https://www.tiktok.com/@{normalized_username}/video/{item_id}"
+    return await proxy_media_response(playable_url, referer, range_header)
+
+
+@router.get(
+    "/v2/{username}/posts",
+    response_model=JSONFeed,
+    summary="TikTok User Posts RSS v2",
+    response_class=PrettyJSONFeedResponse,
+)
+async def posts_v2(
+    req: Request,
+    username: str = Path(
+        ...,
+        min_length=1,
+        max_length=25,
+        pattern=r"^@?[A-Za-z0-9._]{1,24}$",
+        description="TikTok 用户名，可包含 @ 前缀",
+        examples=["arimariash", "@arimariash"],
+    ),
+    max_posts: int = Query(12, ge=1, le=50, description="最大贴文数，默认 12，最大 50"),
+    cookie_query: str | None = Query(
+        None,
+        alias="cookies",
+        min_length=1,
+        max_length=32768,
+        description="TikTok Cookie；仅在配置启用且请求来自 loopback 时接受",
+    ),
+    cookie_header: str | None = Header(
+        None,
+        alias="X-TikTok-Cookie",
+        min_length=1,
+        max_length=32768,
+        description="TikTok Cookie；同时提供时优先于 cookies Query",
+    ),
+) -> JSONFeed:
+    """通过 Playwright 浏览器监听页面自身的公开 API 响应，获取 TikTok 用户作品。"""
+    normalized_username = normalize_username(username)
+    effective_cookie = _resolve_tiktok_cookie(req, cookie_query, cookie_header)
+    user, posts_data = await _fetch_user_posts_v2_or_http(normalized_username, max_posts, effective_cookie)
+    resolved_username = str(user.get("uniqueId") or normalized_username)
+    display_name = str(user.get("nickname") or resolved_username)
+    profile_url = f"{TIKTOK_BASE_URL}/@{resolved_username}"
+    avatar = avatar_url(user)
+    author = {"name": display_name, "url": profile_url, "avatar": avatar}
+    feed: dict[str, Any] = {
+        "version": "https://jsonfeed.org/version/1",
+        "title": f"{display_name} (@{resolved_username}) 的 TikTok 贴文",
+        "description": f"TikTok @{resolved_username}",
+        "home_page_url": profile_url,
+        "feed_url": _feed_url_without_cookie(req),
+        "icon": avatar or TIKTOK_FAVICON,
+        "favicon": avatar or TIKTOK_FAVICON,
+        "author": author,
+        "items": [_feed_item_v2(req, item, user, resolved_username, max_posts) for item in posts_data],
+    }
+    return JSONFeed.model_validate(feed)
 
 
 @router.get(
