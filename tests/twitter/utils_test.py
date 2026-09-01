@@ -502,7 +502,8 @@ def test_content_html_from_tweet_renders_photo_and_animated_gif_as_image():
     )
 
     assert content_html_from_tweet(tweet) == (
-        '<p>hello</p><img src="https://example.com/animated.gif" width="320" height="180" />'
+        '<div><img src="https://example.com/animated.gif" width="320" height="180" /></div>'
+        "<details><summary>查看正文</summary><p>hello</p></details>"
     )
 
 
@@ -518,7 +519,9 @@ def test_content_html_from_tweet_removes_tco_links_from_text():
         }
     )
 
-    assert content_html_from_tweet(tweet) == "<p>hello world https://example.com/keep</p>"
+    assert content_html_from_tweet(tweet) == (
+        "<details><summary>查看正文</summary><p>hello world https://example.com/keep</p></details>"
+    )
 
     tweet = Tweet.model_validate(
         {
@@ -539,7 +542,8 @@ def test_content_html_from_tweet_removes_tco_links_from_text():
     )
 
     assert content_html_from_tweet(tweet) == (
-        '<p>hello</p><img src="https://example.com/animated.gif" width="320" height="180" />'
+        '<div><img src="https://example.com/animated.gif" width="320" height="180" /></div>'
+        "<details><summary>查看正文</summary><p>hello</p></details>"
     )
 
 
@@ -563,7 +567,132 @@ def test_content_html_from_tweet_renders_video_without_emoji_prefix():
     )
 
     assert content_html_from_tweet(tweet) == (
-        '<p>hello</p><video src="https://example.com/video.mp4" width="640" height="360" controls preload="metadata"></video>'
+        '<div><video src="https://example.com/video.mp4" width="640" height="360" controls preload="metadata"></video></div>'
+        "<details><summary>查看正文</summary><p>hello</p></details>"
+    )
+
+
+def test_content_html_from_tweet_renders_images_before_videos() -> None:
+    tweet = Tweet.model_validate(
+        {
+            "id": "1",
+            "text": "hello",
+            "author": {"name": "tester", "screenName": "tester"},
+            "metrics": {},
+            "createdAt": "2025-01-01T00:00:00+00:00",
+            "media": [
+                {
+                    "type": "video",
+                    "url": "https://example.com/video.mp4",
+                    "width": 640,
+                    "height": 360,
+                },
+                {
+                    "type": "animated_gif",
+                    "url": "https://example.com/animated.gif",
+                    "width": 320,
+                    "height": 180,
+                },
+                {
+                    "type": "photo",
+                    "url": "https://example.com/photo.jpg",
+                    "width": 160,
+                    "height": 90,
+                },
+            ],
+        }
+    )
+
+    assert content_html_from_tweet(tweet) == (
+        '<div><img src="https://example.com/animated.gif" width="320" height="180" />'
+        '<img src="https://example.com/photo.jpg" width="160" height="90" />'
+        '<video src="https://example.com/video.mp4" width="640" height="360" controls preload="metadata"></video></div>'
+        "<details><summary>查看正文</summary><p>hello</p></details>"
+    )
+
+
+def test_content_html_from_tweet_keeps_retweet_notice_before_media_and_folds_quoted_tweet() -> None:
+    tweet = Tweet.model_validate(
+        {
+            "id": "1",
+            "text": "hello",
+            "author": {"name": "tester", "screenName": "tester"},
+            "metrics": {},
+            "createdAt": "2025-01-01T00:00:00+00:00",
+            "isRetweet": True,
+            "retweetedBy": "SWuChunYi",
+            "media": [
+                {
+                    "type": "photo",
+                    "url": "https://example.com/photo.jpg",
+                    "width": 320,
+                    "height": 180,
+                }
+            ],
+            "quotedTweet": {
+                "id": "2",
+                "text": "quoted text",
+                "author": {"name": "quoted", "screenName": "quoted"},
+            },
+        }
+    )
+
+    assert content_html_from_tweet(tweet) == (
+        '<p>🔁 RT by <a href="https://x.com/SWuChunYi">@SWuChunYi</a></p>'
+        '<div><img src="https://example.com/photo.jpg" width="320" height="180" /></div>'
+        "<details><summary>查看正文</summary><p>hello</p>"
+        '<blockquote><p><a href="https://x.com/quoted"><b>quoted</b> @quoted</a></p><p>quoted text</p>'
+        '<p><a href="https://x.com/quoted/status/2">Original</a></p></blockquote></details>'
+    )
+
+
+def test_content_html_from_tweet_folds_quoted_article_without_media() -> None:
+    tweet = Tweet.model_validate(
+        {
+            "id": "1",
+            "text": "",
+            "author": {"name": "tester", "screenName": "tester"},
+            "metrics": {},
+            "createdAt": "2025-01-01T00:00:00+00:00",
+            "quotedTweet": {
+                "id": "2",
+                "text": "",
+                "author": {"name": "quoted", "screenName": "quoted"},
+                "article_title": "Article title",
+                "urls": ["https://example.com/article"],
+            },
+        }
+    )
+
+    assert content_html_from_tweet(tweet) == (
+        '<details><summary>查看正文</summary><p><a href="https://example.com/article">Article title</a></p></details>'
+    )
+
+
+def test_content_html_from_tweet_does_not_render_empty_details_for_media_only_retweet() -> None:
+    tweet = Tweet.model_validate(
+        {
+            "id": "1",
+            "text": "",
+            "author": {"name": "tester", "screenName": "tester"},
+            "metrics": {},
+            "createdAt": "2025-01-01T00:00:00+00:00",
+            "isRetweet": True,
+            "retweetedBy": "SWuChunYi",
+            "media": [
+                {
+                    "type": "video",
+                    "url": "https://example.com/video.mp4",
+                    "width": 640,
+                    "height": 360,
+                }
+            ],
+        }
+    )
+
+    assert content_html_from_tweet(tweet) == (
+        '<p>🔁 RT by <a href="https://x.com/SWuChunYi">@SWuChunYi</a></p>'
+        '<div><video src="https://example.com/video.mp4" width="640" height="360" controls preload="metadata"></video></div>'
     )
 
 
@@ -619,5 +748,6 @@ def test_tweets_to_jsonfeed_items_moves_media_emoji_to_title():
 
     assert item.title == "📸 hello world"
     assert (
-        item.content_html == '<p>hello world</p><img src="https://example.com/image.jpg" width="320" height="180" />'
+        item.content_html == '<div><img src="https://example.com/image.jpg" width="320" height="180" /></div>'
+        "<details><summary>查看正文</summary><p>hello world</p></details>"
     )
