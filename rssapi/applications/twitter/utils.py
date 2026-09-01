@@ -254,36 +254,40 @@ async def fetch_user_posts(screen_name: str, max_tweets: int, cookies: str) -> l
 
 
 def content_html_from_tweet(tweet: Tweet) -> str:
-    content_html = ""
+    content_parts: list[str] = []
 
     if tweet.is_retweet and tweet.retweeted_by:
         rt_name = html.escape(tweet.retweeted_by)
-        content_html += f'<p>🔁 RT by <a href="https://x.com/{rt_name}">@{rt_name}</a></p>'
+        content_parts.append(f'<p>🔁 RT by <a href="https://x.com/{rt_name}">@{rt_name}</a></p>')
+
+    image_media = [media for media in tweet.media if media.type in {"photo", "animated_gif"}]
+    video_media = [media for media in tweet.media if media.type == "video"]
+    media_parts = [f'<img src="{media.url}" width="{media.width}" height="{media.height}" />' for media in image_media]
+    media_parts.extend(
+        f'<video src="{media.url}" width="{media.width}" height="{media.height}" controls preload="metadata"></video>'
+        for media in video_media
+    )
+    if media_parts:
+        content_parts.append(f"<div>{''.join(media_parts)}</div>")
+
+    body_parts: list[str] = []
 
     if tweet.text:
         text = text_without_tco_links(tweet.text)
         text = markdown_parse(text)
-        content_html += f"{text}"
-
-    for m in tweet.media:
-        match m.type:
-            case "photo" | "animated_gif":
-                content_html += f'<img src="{m.url}" width="{m.width}" height="{m.height}" />'
-            case "video":
-                content_html += (
-                    f'<video src="{m.url}" width="{m.width}" height="{m.height}" controls preload="metadata"></video>'
-                )
+        if text:
+            body_parts.append(text)
 
     if tweet.quoted_tweet:
         if tweet.quoted_tweet.article_title and tweet.quoted_tweet.urls:
-            content_html += f'<p><a href="{tweet.quoted_tweet.urls[0]}">{tweet.quoted_tweet.article_title}</a></p>'
+            body_parts.append(f'<p><a href="{tweet.quoted_tweet.urls[0]}">{tweet.quoted_tweet.article_title}</a></p>')
         else:
             qt = tweet.quoted_tweet
             qt_screen_name = html.escape(qt.author.screen_name)
             qt_name = html.escape(qt.author.name)
             qt_text = markdown_parse(qt.text)
             qt_url = f"https://x.com/{qt_screen_name}/status/{qt.id}"
-            content_html += (
+            body_parts.append(
                 f"<blockquote>"
                 f'<p><a href="https://x.com/{qt_screen_name}"><b>{qt_name}</b> @{qt_screen_name}</a></p>'
                 f"{qt_text}"
@@ -291,7 +295,10 @@ def content_html_from_tweet(tweet: Tweet) -> str:
                 f"</blockquote>"
             )
 
-    return content_html
+    if body_parts:
+        content_parts.append(f"<details><summary>查看正文</summary>{''.join(body_parts)}</details>")
+
+    return "".join(content_parts)
 
 
 def new_get_instructions(
