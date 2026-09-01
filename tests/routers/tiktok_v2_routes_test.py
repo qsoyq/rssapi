@@ -15,6 +15,7 @@ from playwright.async_api import async_playwright
 
 from rssapi.applications.tiktok.browser import (
     TikTokBrowserError,
+    TikTokPlaywright,
     _cookies_from_header,
     _payload_items,
     _playwright_proxy,
@@ -28,7 +29,9 @@ from rssapi.applications.tiktok.router import (
     _feed_url_without_cookie,
     _resolve_tiktok_cookie,
 )
+from rssapi.core.settings import settings
 from rssapi.main import app
+from rssapi.utils.playwright_capacity import acquire_playwright_slot
 
 
 def _user(
@@ -392,6 +395,58 @@ async def test_timeout_cancels_hanging_response_body_capture() -> None:
 
     assert exc_info.value.kind == "timeout"
     assert elapsed < 4
+
+
+@pytest.mark.asyncio
+async def test_timeout_failure_is_not_cached() -> None:
+    await _require_chromium()
+    await clear_v2_cache()
+    upstream = LocalTikTokBrowserUpstream(mode="hanging_body")
+    upstream.start()
+    try:
+        with pytest.raises(TikTokBrowserError) as exc_info:
+            await fetch_user_posts_v2_by_cache(
+                "arimariash",
+                2,
+                base_url=upstream.base_url,
+                timeout=1.5,
+                cookie_header="session=timeout",
+            )
+        upstream.mode = "posts"
+        _, posts = await fetch_user_posts_v2_by_cache(
+            "arimariash",
+            2,
+            base_url=upstream.base_url,
+            timeout=1.5,
+            cookie_header="session=timeout",
+        )
+    finally:
+        upstream.close()
+
+    assert exc_info.value.kind == "timeout"
+    assert len(posts) == 2
+
+
+@pytest.mark.asyncio
+async def test_global_playwright_capacity_returns_busy_before_launch() -> None:
+    leases = [acquire_playwright_slot("test") for _ in range(settings.rss_playwright_concurrency)]
+    try:
+        with pytest.raises(TikTokBrowserError) as exc_info:
+            await fetch_user_posts_v2("arimariash", 2, base_url="http://127.0.0.1:1", timeout=5)
+    finally:
+        for lease in leases:
+            lease.release()
+
+    assert exc_info.value.kind == "busy"
+    assert exc_info.value.status_code == 503
+
+
+def test_tiktok_browser_does_not_start_a_stage_with_an_expired_budget() -> None:
+    scraper = TikTokPlaywright("arimariash", 2, timeout=1)
+    scraper._started_at = time.monotonic() - 0.95
+
+    with pytest.raises(asyncio.TimeoutError):
+        scraper._stage_timeout(5)
 
 
 @pytest.mark.asyncio

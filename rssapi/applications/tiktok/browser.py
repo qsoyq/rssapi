@@ -1,7 +1,10 @@
 import asyncio
+import contextlib
 import hashlib
+import logging
 import re
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -17,12 +20,21 @@ from playwright.async_api import async_playwright
 from rssapi.applications.tiktok.utils import TIKTOK_BASE_URL, normalize_username
 from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
+from rssapi.utils.playwright_capacity import (
+    PlaywrightCapacityError,
+    PlaywrightLease,
+    acquire_playwright_slot,
+)
+
+logger = logging.getLogger(__name__)
 
 _PublicCacheKey = tuple[str, int, str, float, str | None]
 _InflightKey = tuple[_PublicCacheKey, str | None, str | None]
 _max_inflight = max(settings.tiktok.playwright_max_inflight, settings.tiktok.playwright_concurrency)
 
 _COOKIE_NAME_RE = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+_NETWORK_ERROR_RE = re.compile(r"net::([A-Z_]+)")
+_MIN_STAGE_TIMEOUT = 0.1
 _PROFILE_API_PATH = "/api/user/detail/"
 _POST_API_PATHS = ("/api/post/item_list/", "/api/creator/item_list/")
 
@@ -269,38 +281,69 @@ class TikTokPlaywright:
         self._events: asyncio.Queue[_CapturedPayload] = asyncio.Queue()
         self._response_tasks: set[asyncio.Task[None]] = set()
         self._saw_malformed_posts = False
+        self._closing = False
+        self._started_at = 0.0
+        self._phase = "initial"
 
     async def run(self) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        self._started_at = time.monotonic()
         try:
             return await asyncio.wait_for(self._run_with_browser_slot(), timeout=self.timeout)
         except asyncio.TimeoutError as exc:
-            raise TikTokBrowserError(
+            error = TikTokBrowserError(
                 f"TikTok browser timed out for @{self.username}",
                 kind="timeout",
                 status_code=504,
-            ) from exc
+            )
+            self._log_failure(error, error_code="timeout")
+            raise error from exc
+        except TikTokBrowserError as exc:
+            self._log_failure(exc)
+            raise
 
     async def _run_with_browser_slot(self) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        async with _runtime_state().browser_semaphore:
+        state = _runtime_state()
+        self._set_phase("queue")
+        try:
+            await asyncio.wait_for(
+                state.browser_semaphore.acquire(),
+                timeout=self._stage_timeout(settings.tiktok.playwright_queue_timeout),
+            )
+        except asyncio.TimeoutError as exc:
+            raise TikTokBrowserError(
+                "TikTok browser queue is full",
+                kind="busy",
+                status_code=503,
+            ) from exc
+        try:
             return await self._run_browser()
+        finally:
+            state.browser_semaphore.release()
 
     async def _run_browser(self) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         browser_started = False
+        lease: PlaywrightLease | None = None
         try:
             async with async_playwright() as playwright:
                 browser: Browser | None = None
                 context: BrowserContext | None = None
                 page: Page | None = None
                 try:
-                    browser = await playwright.chromium.launch(
-                        channel="chromium",
-                        headless=True,
-                        proxy=_playwright_proxy(self.proxy),
+                    self._set_phase("startup")
+                    lease = acquire_playwright_slot("tiktok")
+                    launched_browser = await asyncio.wait_for(
+                        playwright.chromium.launch(
+                            channel="chromium",
+                            headless=True,
+                            proxy=_playwright_proxy(self.proxy),
+                        ),
+                        timeout=self._stage_timeout(settings.tiktok.playwright_startup_timeout),
                     )
+                    browser = launched_browser
                     browser_started = True
                     context_options: dict[str, Any] = {
                         "locale": "en-US",
-                        "user_agent": _browser_user_agent(browser.version),
+                        "user_agent": _browser_user_agent(launched_browser.version),
                         "viewport": {"width": 1440, "height": 1080},
                     }
                     if self.storage_state_path:
@@ -312,29 +355,63 @@ class TikTokPlaywright:
                                 status_code=503,
                             )
                         context_options["storage_state"] = str(state_path)
-                    context = await browser.new_context(**context_options)
+                    created_context = await asyncio.wait_for(
+                        launched_browser.new_context(**context_options),
+                        timeout=self._stage_timeout(settings.tiktok.playwright_startup_timeout),
+                    )
+                    context = created_context
                     if self.cookie_header is not None:
-                        await context.add_cookies(cast(Any, _cookies_from_header(self.cookie_header, self.base_url)))
-                    page = await context.new_page()
-                    page.on("response", self._on_response)
-                    await page.goto(
+                        await asyncio.wait_for(
+                            created_context.add_cookies(
+                                cast(Any, _cookies_from_header(self.cookie_header, self.base_url))
+                            ),
+                            timeout=self._stage_timeout(settings.tiktok.playwright_startup_timeout),
+                        )
+                    created_page = await asyncio.wait_for(
+                        created_context.new_page(),
+                        timeout=self._stage_timeout(settings.tiktok.playwright_startup_timeout),
+                    )
+                    page = created_page
+                    created_page.on("response", self._on_response)
+                    self._set_phase("navigation")
+                    navigation_timeout = self._stage_timeout(settings.tiktok.playwright_navigation_timeout)
+                    await created_page.goto(
                         f"{self.base_url}/@{self.username}",
                         wait_until="domcontentloaded",
-                        timeout=self.timeout * 1000,
+                        timeout=navigation_timeout * 1000,
                     )
-                    return await self._collect(page)
+                    self._set_phase("collect")
+                    collect_timeout = self._stage_timeout(self.timeout)
+                    return await asyncio.wait_for(
+                        self._collect(created_page),
+                        timeout=collect_timeout,
+                    )
                 finally:
-                    if page is not None:
-                        page.remove_listener("response", self._on_response)
                     try:
-                        await asyncio.wait_for(self._cleanup_browser(context, browser), timeout=3)
-                    except (asyncio.TimeoutError, PlaywrightError):
-                        pass
+                        self._set_phase("cleanup")
+                        if page is not None:
+                            try:
+                                page.remove_listener("response", self._on_response)
+                            except PlaywrightError:
+                                pass
+                        try:
+                            await asyncio.wait_for(self._cleanup_browser(context, browser), timeout=3)
+                        except (asyncio.TimeoutError, PlaywrightError):
+                            pass
+                    finally:
+                        if lease is not None:
+                            lease.release()
         except TikTokBrowserError:
             raise
+        except PlaywrightCapacityError as exc:
+            raise TikTokBrowserError(
+                "TikTok browser capacity is exhausted",
+                kind="busy",
+                status_code=503,
+            ) from exc
         except PlaywrightTimeoutError as exc:
             raise TikTokBrowserError(
-                f"TikTok browser navigation timed out for @{self.username}",
+                f"TikTok browser timed out for @{self.username}",
                 kind="timeout",
                 status_code=504,
             ) from exc
@@ -346,24 +423,53 @@ class TikTokPlaywright:
                 status_code=503,
             ) from exc
 
+    def _stage_timeout(self, configured_timeout: float) -> float:
+        remaining = self.timeout - (time.monotonic() - self._started_at)
+        if remaining < _MIN_STAGE_TIMEOUT:
+            raise asyncio.TimeoutError
+        return min(configured_timeout, remaining)
+
+    def _set_phase(self, phase: str) -> None:
+        if phase != "cleanup":
+            self._phase = phase
+        logger.debug(f"TikTok Playwright phase={phase} username=@{self.username} elapsed_ms={self._elapsed_ms()}")
+
+    def _elapsed_ms(self) -> int:
+        if self._started_at == 0:
+            return 0
+        return int((time.monotonic() - self._started_at) * 1000)
+
+    def _log_failure(self, error: TikTokBrowserError, *, error_code: str | None = None) -> None:
+        if error_code is None:
+            match = _NETWORK_ERROR_RE.search(str(error.__cause__ or ""))
+            error_code = match.group(1) if match else None
+        logger.warning(
+            f"TikTok Playwright failed username=@{self.username} phase={self._phase} "
+            f"elapsed_ms={self._elapsed_ms()} kind={error.kind} status={error.status_code} "
+            f"error_type={type(error.__cause__).__name__ if error.__cause__ else type(error).__name__} "
+            f"error_code={error_code or 'none'}"
+        )
+
     async def _cleanup_browser(self, context: BrowserContext | None, browser: Browser | None) -> None:
-        response_tasks = tuple(self._response_tasks)
-        for task in response_tasks:
-            task.cancel()
-        if response_tasks:
+        self._closing = True
+        while self._response_tasks:
+            response_tasks = tuple(self._response_tasks)
+            for task in response_tasks:
+                task.cancel()
             await asyncio.gather(*response_tasks, return_exceptions=True)
-        if context is not None:
-            try:
-                await context.close()
-            except PlaywrightError:
-                pass
-        if browser is not None:
-            try:
-                await browser.close()
-            except PlaywrightError:
-                pass
+            self._response_tasks.difference_update(response_tasks)
+        try:
+            if context is not None:
+                with contextlib.suppress(PlaywrightError):
+                    await context.close()
+        finally:
+            if browser is not None:
+                with contextlib.suppress(PlaywrightError):
+                    await browser.close()
 
     def _on_response(self, response: Response) -> None:
+        if self._closing:
+            return
         task = asyncio.create_task(self._capture_response(response))
         self._response_tasks.add(task)
         task.add_done_callback(self._response_tasks.discard)
@@ -528,7 +634,7 @@ async def _fetch_and_cache(
         state.result_cache[public_key] = result
         return result
     except TikTokBrowserError as exc:
-        if exc.status_code in (429, 502, 503, 504):
+        if exc.status_code in (429, 502, 503, 504) and exc.kind not in {"busy", "timeout"}:
             state.failure_cache[inflight_key] = _FailureRecord(
                 message=str(exc),
                 kind=exc.kind,

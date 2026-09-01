@@ -11,6 +11,7 @@ from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
 from rssapi.core.responses import PrettyJSONFeedResponse
 from rssapi.core.settings import AppSettings, settings
 from rssapi.utils.cache import RandomTTLCache
+from rssapi.utils.playwright_capacity import PlaywrightCapacityError
 from rssapi.utils.rss.douyin import AccessHistory, DouyinPlaywright, TimeoutException, to_feeds
 
 rss_douyin_user_semaphore = asyncio.locks.Semaphore(AppSettings().rss_douyin_user_semaphore)
@@ -111,6 +112,12 @@ async def _get_douyin_user_videos(
     try:
         async with asyncio.timeout(timeout):
             items = await get_feeds_by_cache(username, cookie) if use_cache else await get_feeds(username, cookie)
+    except PlaywrightCapacityError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Playwright capacity is exhausted",
+            headers={"Retry-After": "5"},
+        ) from exc
     except (asyncio.TimeoutError, TimeoutException, TimeoutError, PlaywrightTimeoutError):
         raise HTTPException(status_code=504, detail="获取数据超时")
     douyin_user_feeds_handler(feed, items)

@@ -221,6 +221,9 @@ class TikTokSettings(BaseSettings):
     fetch_concurrency: int = 3
     media_proxy_concurrency: int = 3
     playwright_timeout: float = 35.0
+    playwright_queue_timeout: float = 35.0
+    playwright_startup_timeout: float = 5.0
+    playwright_navigation_timeout: float = 15.0
     playwright_concurrency: int = 1
     playwright_max_inflight: int = 3
     playwright_storage_state_path: str | None = None
@@ -254,6 +257,7 @@ class AppSettings(BaseSettings):  # type:ignore
     tiktok: TikTokSettings = TikTokSettings()
 
     cloud_scraper_verify: bool = False
+    rss_playwright_concurrency: int = 11
     # rss
     ## douyin
     rss_douyin_user_semaphore: int = 5
