@@ -7,6 +7,8 @@ from urllib.parse import urlparse
 
 from playwright.sync_api import Browser, Page, Playwright, sync_playwright
 
+from rssapi.utils.playwright_capacity import PlaywrightLease, acquire_playwright_slot
+
 logger = logging.getLogger(__file__)
 
 
@@ -21,6 +23,7 @@ class TwitterClientTransactionSigner:
         self._cleanup_required = threading.Event()
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
+        self._browser_lease: PlaywrightLease | None = None
         self._page: Page | None = None
         self._bootstrap_url: str | None = None
 
@@ -129,46 +132,57 @@ class TwitterClientTransactionSigner:
         self._set_owner_thread()
         page = self._page
         browser = self._browser
+        browser_lease = self._browser_lease
         playwright = self._playwright
         self._page = None
         self._browser = None
+        self._browser_lease = None
         self._playwright = None
         self._bootstrap_url = None
         self._cleanup_required.clear()
 
-        if page is not None:
-            with contextlib.suppress(Exception):
-                page.close()
-        if browser is not None:
-            with contextlib.suppress(Exception):
-                browser.close()
-        if playwright is not None:
-            with contextlib.suppress(Exception):
-                playwright.stop()
+        try:
+            if page is not None:
+                with contextlib.suppress(Exception):
+                    page.close()
+            if browser is not None:
+                with contextlib.suppress(Exception):
+                    browser.close()
+            if playwright is not None:
+                with contextlib.suppress(Exception):
+                    playwright.stop()
+        finally:
+            if browser_lease is not None:
+                browser_lease.release()
 
     def _ensure_page(self, bootstrap_url: str) -> Page:
         if self._page is not None and not self._page.is_closed() and self._bootstrap_url == bootstrap_url:
             return self._page
 
         self.close()
-        playwright = sync_playwright().start()
-        self._playwright = playwright
-        browser = playwright.chromium.launch(headless=True)
-        self._browser = browser
-        page = browser.new_page()
-        self._page = page
-        page.goto(bootstrap_url, wait_until="domcontentloaded", timeout=30_000)
-        page.wait_for_function(
-            """
+        self._browser_lease = acquire_playwright_slot("twitter_client_transaction")
+        try:
+            playwright = sync_playwright().start()
+            self._playwright = playwright
+            browser = playwright.chromium.launch(headless=True)
+            self._browser = browser
+            page = browser.new_page()
+            self._page = page
+            page.goto(bootstrap_url, wait_until="domcontentloaded", timeout=30_000)
+            page.wait_for_function(
+                """
             () => document.querySelector('meta[name="twitter-site-verification"]')
               && document.querySelectorAll('path[d]').length >= 8
             """,
-            timeout=15_000,
-        )
-        page.wait_for_timeout(1_000)
-        self._bootstrap_url = bootstrap_url
-        logger.info(f"Twitter ClientTransaction Playwright signer initialized from {bootstrap_url}")
-        return page
+                timeout=15_000,
+            )
+            page.wait_for_timeout(1_000)
+            self._bootstrap_url = bootstrap_url
+            logger.info(f"Twitter ClientTransaction Playwright signer initialized from {bootstrap_url}")
+            return page
+        except BaseException:
+            self._close_on_owner()
+            raise
 
 
 client_transaction_signer = TwitterClientTransactionSigner()

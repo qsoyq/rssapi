@@ -216,6 +216,17 @@ Each data source can configure cache size (`*_MAXSIZE`, max entries) and expiry 
 | `RSS_DOUYIN_USER_FEEDS_CACHE_TTL` | `1800` | 用户作品列表缓存 TTL |
 | `RSS_DOUYIN_USER_FEEDS_CACHE_MAXSIZE` | `4096` | 用户作品列表缓存条目数 |
 
+### Playwright 容量配置
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `RSS_PLAYWRIGHT_CONCURRENCY` | `11` | 单个 rssapi 进程可同时运行的 Chromium 浏览器上限；所有 Playwright 来源共享该额度 |
+| `RSS_TIKTOK_PLAYWRIGHT_CONCURRENCY` | `1` | TikTok v2 的活跃 Chromium 上限 |
+| `RSS_TIKTOK_PLAYWRIGHT_MAX_INFLIGHT` | `3` | TikTok v2 可同时接收的不同浏览器任务上限；超出时返回 `503` |
+| `RSS_TIKTOK_PLAYWRIGHT_QUEUE_TIMEOUT` | `35` | TikTok v2 等待来源浏览器槽位的秒数；生产环境可缩短以快速返回 `503` |
+
+> `RSS_PLAYWRIGHT_CONCURRENCY` 是进程级限制；多 worker 部署应按 worker 数分配总浏览器预算。
+
 #### Instagram (`RSS_INSTAGRAM_`)
 
 | 环境变量 | 默认值 | 说明 |

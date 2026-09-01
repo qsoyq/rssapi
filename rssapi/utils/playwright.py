@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -6,6 +7,12 @@ from abc import ABC
 
 from playwright import async_api
 from playwright._impl._errors import TargetClosedError
+
+from rssapi.utils.playwright_capacity import (
+    PlaywrightCapacityError,
+    PlaywrightLease,
+    acquire_playwright_slot_async,
+)
 
 logger = logging.getLogger(__file__)
 
@@ -22,15 +29,15 @@ class AsyncPlaywright(ABC):
         user_agent: str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
     ):
         self.url = url
-        self._cookies: list = []
+        self._cookies: list[dict[str, str]] = []
         self.user_agent = user_agent
         self._start_ts = time.time()
         self.fut: asyncio.Future[str | dict] = asyncio.Future()
 
-    def add_cookies(self, cookies: list):
+    def add_cookies(self, cookies: list[dict[str, str]]) -> None:
         self._cookies.extend(cookies)
 
-    def cookies_by_str(self, cookie: str, url: str) -> list:
+    def cookies_by_str(self, cookie: str, url: str) -> list[dict[str, str]]:
         _cookies = [x.strip().split("=") for x in cookie.split(";") if x != ""]
         _cookies_dict = dict([x for x in _cookies if len(x) == 2])
         cookies = [{"name": k, "value": v, "url": url} for k, v in _cookies_dict.items()]
@@ -51,38 +58,55 @@ class AsyncPlaywright(ABC):
 
             async with async_api.async_playwright() as playwright:
                 logger.debug(f"{self.__class__.__name__} enter playwright context: {self.url}")
-                chromium = playwright.chromium
-                browser = await chromium.launch(headless=self.__class__.HEADLESS)
-                logger.debug(f"{self.__class__.__name__} new browser: {self.url}")
-                context = await browser.new_context(user_agent=self.user_agent)
-                logger.debug(f"{self.__class__.__name__} new context: {self.url}")
-                if cookies:
-                    await context.add_cookies(cookies)  # type: ignore
-
-                page = await context.new_page()
-                logger.debug(f"{self.__class__.__name__} new page: {self.url}")
-                page.on("response", self.on_response)
-
+                browser: async_api.Browser | None = None
+                context: async_api.BrowserContext | None = None
+                lease: PlaywrightLease | None = None
                 try:
+                    lease = await acquire_playwright_slot_async(self.__class__.__name__)
+                    chromium = playwright.chromium
+                    browser = await chromium.launch(headless=self.__class__.HEADLESS)
+                    logger.debug(f"{self.__class__.__name__} new browser: {self.url}")
+                    context = await browser.new_context(user_agent=self.user_agent)
+                    logger.debug(f"{self.__class__.__name__} new context: {self.url}")
+                    if cookies:
+                        await context.add_cookies(cookies)
+
+                    page = await context.new_page()
+                    logger.debug(f"{self.__class__.__name__} new page: {self.url}")
+                    page.on("response", self.on_response)
                     logger.debug(f"{self.__class__.__name__} goto page: {self.url}")
                     await page.goto(url)
                     logger.debug(f"{self.__class__.__name__} wait for: {self.url}")
                     result = await self.fut
                     logger.debug(f"{self.__class__.__name__} fetch result done, {self.url}")
                     return result
+                except PlaywrightCapacityError:
+                    raise
                 except Exception as e:
                     last_exc = e
                     if self._is_retryable(e) and attempt < self.MAX_RETRIES:
                         logger.warning(f"{self.__class__.__name__} [run] 可重试错误 (attempt {attempt}): {e}")
                         continue
                     logger.warning(f"{self.__class__.__name__} [run] 运行错误, 请检查用户 id: {self.url}")
-                    raise e
+                    raise
                 finally:
-                    await context.close()
-                    await browser.close()
+                    try:
+                        if context is not None:
+                            with contextlib.suppress(Exception):
+                                await context.close()
+                    finally:
+                        try:
+                            if browser is not None:
+                                with contextlib.suppress(Exception):
+                                    await browser.close()
+                        finally:
+                            if lease is not None:
+                                lease.release()
                     logger.debug(f"{self.__class__.__name__} close browser: {self.url}")
 
-        raise last_exc  # type: ignore[misc]
+        if last_exc is None:
+            raise RuntimeError(f"{self.__class__.__name__} exhausted retries without an error")
+        raise last_exc
 
     @staticmethod
     def _is_retryable(exc: Exception) -> bool:

@@ -6,6 +6,11 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from rssapi.applications.twitter.types import Tweet
+from rssapi.utils.playwright_capacity import (
+    PlaywrightCapacityError,
+    PlaywrightLease,
+    acquire_playwright_slot,
+)
 
 logger = logging.getLogger(__file__)
 
@@ -145,7 +150,9 @@ def fetch_user_posts_with_browser(screen_name: str, max_tweets: int, cookie_stri
         ("public profile", f"https://x.com/{screen_name}", ""),
     ]
 
+    lease: PlaywrightLease | None = None
     try:
+        lease = acquire_playwright_slot("twitter_browser_fallback")
         with sync_playwright() as playwright:
             try:
                 browser = playwright.chromium.launch(headless=True)
@@ -190,6 +197,12 @@ def fetch_user_posts_with_browser(screen_name: str, max_tweets: int, cookie_stri
                 ) from exc
             finally:
                 browser.close()
+    except PlaywrightCapacityError as exc:
+        raise TwitterBrowserFallbackError(
+            "Twitter browser fallback is busy",
+            kind="busy",
+            status_code=503,
+        ) from exc
     except TwitterBrowserFallbackError:
         raise
     except Exception as exc:
@@ -198,6 +211,9 @@ def fetch_user_posts_with_browser(screen_name: str, max_tweets: int, cookie_stri
             kind="startup",
             status_code=503,
         ) from exc
+    finally:
+        if lease is not None:
+            lease.release()
 
     tweets = [Tweet.model_validate(payload) for payload in payloads[:max_tweets]]
     if not tweets:
