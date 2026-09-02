@@ -91,11 +91,17 @@ Build outputs are generated under `dist/` and should not be committed.
 
 All configuration items support environment variable overrides. They can also be written to a local `.env` file in the project root. Do not commit `.env` files.
 
-The sections below list cache-related environment variables for each RSS source.
+The sections below list environment variables for RSS sources and middleware.
 
 ### Cache configuration
 
 Each data source can configure cache size (`*_MAXSIZE`, max entries) and expiry (`*_TTL`, seconds) independently.
+
+#### Middleware (`RSS_MIDDLEWARE_`)
+
+| Environment variable | Default | Description |
+| --- | --- | --- |
+| `RSS_MIDDLEWARE_CLEAR_HOME_PAGE_URL_ENABLED` | `true` | Whether to clear `home_page_url` from JSON Feeds; set to `false` (or `f`) to preserve each feed's homepage |
 
 #### Twitter (`RSS_TWITTER_`)
 

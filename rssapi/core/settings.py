@@ -18,6 +18,7 @@ class MiddlewareSettings(BaseSettings):
         extra="ignore",
     )
     max_title_length: int = 50
+    clear_home_page_url_enabled: bool = True
 
 
 class TwitterSettings(BaseSettings):
