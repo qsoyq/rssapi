@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from rssapi.applications.instagram import utils as instagram_utils
 from rssapi.applications.instagram.utils import fetch_user_feed_data, post_to_jsonfeed_item
+from rssapi.core.middlewares import rss as rss_middleware
 from rssapi.main import app
 
 
@@ -426,6 +427,22 @@ def test_instagram_route_returns_json_feed_and_uses_cache(
     assert content_html.index("</details>") < content_html.index("查看原贴")
     assert second_response.status_code == 200
     assert len(instagram_upstream.requests) == 1
+
+
+def test_instagram_route_preserves_profile_home_page_when_clearing_is_disabled(
+    instagram_upstream: LocalInstagramUpstream,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    username = "homepage_route_user"
+    instagram_upstream.add(username, None, _payload(username, [_image_post(1, username)]))
+    monkeypatch.setattr(instagram_utils, "INSTAGRAM_API_BASE_URL", instagram_upstream.base_url)
+    monkeypatch.setattr(rss_middleware.settings.middleware, "clear_home_page_url_enabled", False)
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/rss/instagram/{username}/posts")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["home_page_url"] == f"https://www.instagram.com/{username}/"
 
 
 def test_instagram_route_rejects_soft_login_response(

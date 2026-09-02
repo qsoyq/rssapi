@@ -331,6 +331,8 @@ class ClearHomePageUrlMiddleware(BaseJSONFeedMiddleware):
     """将 feed 的 home_page_url 设置为空字符串"""
 
     def transform_body(self, body: dict[str, Any], _: Request) -> dict[str, Any]:
+        if not settings.middleware.clear_home_page_url_enabled:
+            return body
         body["home_page_url"] = ""
         return body
 
