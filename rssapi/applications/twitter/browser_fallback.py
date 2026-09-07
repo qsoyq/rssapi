@@ -11,6 +11,7 @@ from rssapi.utils.playwright_capacity import (
     PlaywrightLease,
     acquire_playwright_slot,
 )
+from rssapi.utils.playwright_proxy import playwright_launch_options
 
 logger = logging.getLogger(__file__)
 
@@ -155,7 +156,7 @@ def fetch_user_posts_with_browser(screen_name: str, max_tweets: int, cookie_stri
         lease = acquire_playwright_slot("twitter_browser_fallback")
         with sync_playwright() as playwright:
             try:
-                browser = playwright.chromium.launch(headless=True)
+                browser = playwright.chromium.launch(**playwright_launch_options(headless=True))
             except Exception as exc:
                 raise TwitterBrowserFallbackError(
                     "Twitter browser fallback could not launch Chromium",

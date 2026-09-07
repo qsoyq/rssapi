@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from playwright.sync_api import Browser, Page, Playwright, sync_playwright
 
 from rssapi.utils.playwright_capacity import PlaywrightLease, acquire_playwright_slot
+from rssapi.utils.playwright_proxy import playwright_launch_options
 
 logger = logging.getLogger(__file__)
 
@@ -164,7 +165,7 @@ class TwitterClientTransactionSigner:
         try:
             playwright = sync_playwright().start()
             self._playwright = playwright
-            browser = playwright.chromium.launch(headless=True)
+            browser = playwright.chromium.launch(**playwright_launch_options(headless=True))
             self._browser = browser
             page = browser.new_page()
             self._page = page

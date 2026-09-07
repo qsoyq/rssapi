@@ -18,7 +18,6 @@ from rssapi.applications.tiktok.browser import (
     TikTokPlaywright,
     _cookies_from_header,
     _payload_items,
-    _playwright_proxy,
     clear_v2_cache,
     fetch_user_posts_v2,
     fetch_user_posts_v2_by_cache,
@@ -594,22 +593,6 @@ def test_tiktok_cookie_is_required() -> None:
 
     assert getattr(exc_info.value, "status_code", None) == 400
     assert getattr(exc_info.value, "detail", None) == "TikTok Cookie is required"
-
-
-def test_proxy_configuration_separates_credentials() -> None:
-    assert _playwright_proxy("http://user:p%40ss@proxy.example:8080") == {
-        "server": "http://proxy.example:8080",
-        "username": "user",
-        "password": "p@ss",
-    }
-
-
-def test_proxy_configuration_rejects_invalid_port() -> None:
-    with pytest.raises(TikTokBrowserError) as exc_info:
-        _playwright_proxy("http://proxy.example:not-a-port")
-
-    assert exc_info.value.kind == "configuration"
-    assert exc_info.value.status_code == 503
 
 
 def test_v2_feed_item_uses_direct_media_by_default() -> None:

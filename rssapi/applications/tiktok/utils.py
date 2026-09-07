@@ -362,7 +362,7 @@ async def fetch_user_posts(
             max_posts,
             base_url=base_url or TIKTOK_BASE_URL,
             timeout=timeout or settings.tiktok.request_timeout,
-            proxy=proxy if proxy is not None else settings.tiktok.proxy,
+            proxy=proxy,
         )
 
 
@@ -384,7 +384,7 @@ async def fetch_posts_by_sec_uid(
             max_posts,
             base_url=base_url or TIKTOK_BASE_URL,
             timeout=timeout or settings.tiktok.request_timeout,
-            proxy=proxy if proxy is not None else settings.tiktok.proxy,
+            proxy=proxy,
         )
 
 
