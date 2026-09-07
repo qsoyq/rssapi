@@ -230,7 +230,6 @@ class TikTokSettings(BaseSettings):
     playwright_storage_state_path: str | None = None
     cookie_query_enabled: bool = True
     v2_media_mode: Literal["direct", "proxy"] = "direct"
-    proxy: str | None = None
 
 
 class AppSettings(BaseSettings):  # type:ignore

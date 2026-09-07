@@ -150,8 +150,7 @@ async def proxy_media_response(
     client = httpx.AsyncClient(
         timeout=httpx.Timeout(settings.tiktok.request_timeout),
         follow_redirects=True,
-        trust_env=False,
-        proxy=settings.tiktok.proxy,
+        trust_env=True,
     )
     request = client.build_request("GET", playable_url, headers=headers)
     try:
@@ -363,7 +362,7 @@ async def posts(
     用户资料通过公开页面中的 ``SIGI_STATE`` hydration 数据解析，再调用 TikTok creator 接口获取 Posts。
     TikTok 可能对频繁请求或特定出口 IP 返回 HTTP 200 的风控壳页；该响应不包含 hydration 数据，端点会明确
     返回 502，而不会误报为空 Feed。成功结果使用 3 小时基础 TTL 的动态内存缓存，但进程重启会清空缓存；部署时
-    可通过 ``RSS_TIKTOK_PROXY`` 配置不同出口以降低风控影响。
+    可通过标准 ``HTTPS_PROXY`` / ``HTTP_PROXY`` 环境变量配置出口以降低风控影响。
 
     Feed 内的视频使用本服务媒体代理。代理仅携带稳定的用户 ``secUid`` 和帖子 ID，播放时重新解析当前媒体地址，
     并携带 TikTok 原帖 Referer 转发单段 Range 请求，避免地址过期及浏览器防盗链。

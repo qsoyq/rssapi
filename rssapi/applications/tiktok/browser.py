@@ -8,12 +8,12 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
-from urllib.parse import unquote, urlsplit
+from urllib.parse import urlsplit
 
 from cachetools import TTLCache
 from playwright.async_api import Browser, BrowserContext
 from playwright.async_api import Error as PlaywrightError
-from playwright.async_api import Page, ProxySettings, Response
+from playwright.async_api import Page, Response
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
@@ -25,10 +25,11 @@ from rssapi.utils.playwright_capacity import (
     PlaywrightLease,
     acquire_playwright_slot,
 )
+from rssapi.utils.playwright_proxy import playwright_launch_options
 
 logger = logging.getLogger(__name__)
 
-_PublicCacheKey = tuple[str, int, str, float, str | None]
+_PublicCacheKey = tuple[str, int, str, float]
 _InflightKey = tuple[_PublicCacheKey, str | None, str | None]
 _max_inflight = max(settings.tiktok.playwright_max_inflight, settings.tiktok.playwright_concurrency)
 
@@ -180,36 +181,6 @@ def _browser_user_agent(browser_version: str) -> str:
     )
 
 
-def _playwright_proxy(proxy_url: str | None) -> ProxySettings | None:
-    if proxy_url is None:
-        return None
-    parsed = urlsplit(proxy_url)
-    if not parsed.scheme or not parsed.hostname:
-        raise TikTokBrowserError(
-            "TikTok Playwright proxy configuration is invalid",
-            kind="configuration",
-            status_code=503,
-        )
-    host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
-    server = f"{parsed.scheme}://{host}"
-    try:
-        port = parsed.port
-    except ValueError as exc:
-        raise TikTokBrowserError(
-            "TikTok Playwright proxy configuration is invalid",
-            kind="configuration",
-            status_code=503,
-        ) from exc
-    if port is not None:
-        server = f"{server}:{port}"
-    proxy: ProxySettings = {"server": server}
-    if parsed.username is not None:
-        proxy["username"] = unquote(parsed.username)
-    if parsed.password is not None:
-        proxy["password"] = unquote(parsed.password)
-    return proxy
-
-
 def _cookie_fingerprint(cookie_header: str | None) -> str | None:
     if cookie_header is None:
         return None
@@ -261,7 +232,6 @@ class TikTokPlaywright:
         *,
         base_url: str = TIKTOK_BASE_URL,
         timeout: float | None = None,
-        proxy: str | None = None,
         storage_state_path: str | None = None,
         cookie_header: str | None = None,
     ) -> None:
@@ -269,7 +239,6 @@ class TikTokPlaywright:
         self.max_posts = max_posts
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout or settings.tiktok.playwright_timeout
-        self.proxy = proxy if proxy is not None else settings.tiktok.proxy
         self.cookie_header = cookie_header
         if cookie_header is not None:
             self.storage_state_path = None
@@ -332,11 +301,7 @@ class TikTokPlaywright:
                     self._set_phase("startup")
                     lease = acquire_playwright_slot("tiktok")
                     launched_browser = await asyncio.wait_for(
-                        playwright.chromium.launch(
-                            channel="chromium",
-                            headless=True,
-                            proxy=_playwright_proxy(self.proxy),
-                        ),
+                        playwright.chromium.launch(**playwright_launch_options(channel="chromium", headless=True)),
                         timeout=self._stage_timeout(settings.tiktok.playwright_startup_timeout),
                     )
                     browser = launched_browser
@@ -592,7 +557,6 @@ async def fetch_user_posts_v2(
     *,
     base_url: str | None = None,
     timeout: float | None = None,
-    proxy: str | None = None,
     storage_state_path: str | None = None,
     cookie_header: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -601,7 +565,6 @@ async def fetch_user_posts_v2(
         max_posts,
         base_url=base_url or TIKTOK_BASE_URL,
         timeout=timeout,
-        proxy=proxy,
         storage_state_path=storage_state_path,
         cookie_header=cookie_header,
     )
@@ -621,13 +584,12 @@ async def _fetch_and_cache(
             return cast(tuple[dict[str, Any], list[dict[str, Any]]], state.result_cache[public_key])
         except KeyError:
             pass
-        username, max_posts, base_url, timeout, proxy = public_key
+        username, max_posts, base_url, timeout = public_key
         result = await fetch_user_posts_v2(
             username,
             max_posts,
             base_url=base_url,
             timeout=timeout,
-            proxy=proxy,
             storage_state_path=storage_state_path,
             cookie_header=cookie_header,
         )
@@ -654,12 +616,10 @@ async def fetch_user_posts_v2_by_cache(
     *,
     base_url: str | None = None,
     timeout: float | None = None,
-    proxy: str | None = None,
     storage_state_path: str | None = None,
     cookie_header: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     state = _runtime_state()
-    resolved_proxy = proxy if proxy is not None else settings.tiktok.proxy
     if cookie_header is not None:
         resolved_storage_state_path = None
     elif storage_state_path is not None:
@@ -671,7 +631,6 @@ async def fetch_user_posts_v2_by_cache(
         max_posts,
         (base_url or TIKTOK_BASE_URL).rstrip("/"),
         timeout or settings.tiktok.playwright_timeout,
-        resolved_proxy,
     )
     inflight_key: _InflightKey = (
         public_key,
