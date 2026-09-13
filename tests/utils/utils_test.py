@@ -172,6 +172,18 @@ def test_nga_content_html_format():
     )
 
 
+@pytest.mark.parametrize(
+    ("subject", "expected"),
+    [
+        ("🖼️ 前国旗护卫队长徐明旭被控&amp;#39;断崖式分手&amp;#39;，", "🖼️ 前国旗护卫队长徐明旭被控'断崖式分手'，"),
+        ("Rock &amp; Roll", "Rock & Roll"),
+        ("不含 HTML 实体的标题", "不含 HTML 实体的标题"),
+    ],
+)
+def test_nga_decode_thread_subject(subject: str, expected: str):
+    assert NgaToolkit.decode_thread_subject(subject) == expected
+
+
 @pytest.mark.asyncio
 async def test_nga_get_sections_uses_current_image_cdn(monkeypatch: pytest.MonkeyPatch):
     requested_urls: list[str] = []
