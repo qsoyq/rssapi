@@ -47,6 +47,16 @@ class NgaToolkit:
             return author
 
     @staticmethod
+    def decode_thread_subject(subject: str) -> str:
+        """Decode NGA's occasionally double-escaped thread subjects."""
+        for _ in range(2):
+            decoded_subject = html.unescape(subject)
+            if decoded_subject == subject:
+                break
+            subject = decoded_subject
+        return subject
+
+    @staticmethod
     async def get_threads(
         uid: str | None = None,
         cid: str | None = None,
@@ -90,6 +100,8 @@ class NgaToolkit:
         for t in t_li:
             if t.get("icon") == 0:
                 t["icon"] = None
+            if isinstance(t.get("subject"), str):
+                t["subject"] = NgaToolkit.decode_thread_subject(t["subject"])
         threads = Threads(threads=[Thread(**t) for t in t_li])
 
         if fid and not if_include_child_node:
