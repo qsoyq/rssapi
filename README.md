@@ -242,3 +242,15 @@ Each data source can configure cache size (`*_MAXSIZE`, max entries) and expiry 
 | `RSS_INSTAGRAM_USER_POSTS_CACHE_MAXSIZE` | `4096` | 用户贴文列表缓存条目数 |
 
 > 注：缓存配置在进程启动时读取，修改环境变量后需要重启服务才能生效。
+
+#### 微博 (`RSS_WEIBO_`)
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `RSS_WEIBO_MEDIA_CACHE_TTL` | `600` | 视频签名地址缓存 TTL（随机 1–2 倍，即 10–20 分钟）；必须远小于微博签名约 60 分钟的寿命 |
+| `RSS_WEIBO_MEDIA_CACHE_MAXSIZE` | `4096` | 视频签名地址缓存条目数 |
+
+> 微博视频 CDN 地址带 `Expires` + `ssig` 签名，寿命约 60 分钟。Feed 中的 `<video src>` 与
+> `attachments[].url` 输出稳定地址 `/api/rss/weibo/media/{post_id}/{n}`；该端点在每次请求时
+> 按帖子 id 重新向上游解析并返回 `302`，因此对任意历史帖子都长期可用。响应带
+> `Cache-Control: no-store`，客户端不得缓存重定向结果。
