@@ -58,28 +58,28 @@ def _authentication_required() -> HTTPException:
     )
 
 
-def _upstream_error(status_code: int, uid: int) -> HTTPException:
-    if status_code == 404:
+def _upstream_error(status_code: int, uid: int | None) -> HTTPException:
+    if status_code == 404 and uid is not None:
         return HTTPException(status_code=404, detail=f"Weibo user not found: {uid}")
     if status_code in {429, 432}:
         return HTTPException(status_code=429, detail="Weibo upstream rate limited or rejected the request")
     return HTTPException(status_code=502, detail=f"Weibo upstream returned HTTP {status_code}")
 
 
-def _weibo_headers(uid: int, sub_cookie: str) -> dict[str, str]:
+def _weibo_headers(uid: int | None, sub_cookie: str) -> dict[str, str]:
     return {
         "Accept": "application/json, text/plain, */*",
-        "Referer": f"{WEIBO_PROFILE_BASE_URL}/u/{uid}",
+        "Referer": f"{WEIBO_PROFILE_BASE_URL}/u/{uid}" if uid is not None else f"{WEIBO_PROFILE_BASE_URL}/",
         "User-Agent": WEIBO_USER_AGENT,
         "X-Requested-With": "XMLHttpRequest",
         "Cookie": sub_cookie,
     }
 
 
-async def _fetch_json(
+async def _fetch_json_payload(
     client: httpx.AsyncClient,
     path: str,
-    uid: int,
+    uid: int | None,
     sub_cookie: str,
     params: dict[str, int | str],
 ) -> dict[str, Any]:
@@ -105,6 +105,17 @@ async def _fetch_json(
     if payload.get("ok") != 1:
         raise HTTPException(status_code=502, detail="Weibo upstream returned an invalid payload")
 
+    return payload
+
+
+async def _fetch_json(
+    client: httpx.AsyncClient,
+    path: str,
+    uid: int | None,
+    sub_cookie: str,
+    params: dict[str, int | str],
+) -> dict[str, Any]:
+    payload = await _fetch_json_payload(client, path, uid, sub_cookie, params)
     data = payload.get("data")
     if not isinstance(data, dict):
         raise HTTPException(status_code=502, detail="Weibo upstream payload is missing data")
@@ -113,7 +124,7 @@ async def _fetch_json(
 
 async def _fetch_long_text(
     client: httpx.AsyncClient,
-    uid: int,
+    uid: int | None,
     post: dict[str, Any],
     sub_cookie: str,
 ) -> dict[str, Any]:
@@ -147,7 +158,7 @@ async def _fetch_long_text(
 
 async def _resolve_long_text(
     client: httpx.AsyncClient,
-    uid: int,
+    uid: int | None,
     post: dict[str, Any],
     sub_cookie: str,
 ) -> dict[str, Any]:
@@ -216,6 +227,57 @@ async def fetch_user_feed_data(
         resolved_items = [await _resolve_long_text(client, uid, post, sub_cookie) for post in items]
 
     return user, resolved_items
+
+
+def _home_posts(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    posts = payload.get("statuses")
+    if not isinstance(posts, list):
+        raise HTTPException(status_code=502, detail="Weibo home timeline payload is missing statuses")
+
+    items: list[dict[str, Any]] = []
+    seen_item_ids: set[str] = set()
+    for post in posts:
+        if not isinstance(post, dict) or post.get("isAd"):
+            continue
+        post_id = _post_id(post)
+        if not post_id or post_id in seen_item_ids or not isinstance(post.get("user"), dict):
+            continue
+        seen_item_ids.add(post_id)
+        items.append(post)
+    return items
+
+
+async def fetch_home_feed_data(
+    timeline: str,
+    max_posts: int,
+    *,
+    sub_cookie: str,
+    base_url: str | None = None,
+    timeout: float = 20.0,
+) -> list[dict[str, Any]]:
+    """Fetch one page of the authenticated user's Weibo home timeline."""
+    if timeline not in {"follow", "foryou"}:
+        raise ValueError(f"Unsupported Weibo home timeline: {timeline}")
+    if not extract_sub_cookie(sub_cookie):
+        raise _authentication_required()
+
+    async with httpx.AsyncClient(
+        base_url=base_url or WEIBO_API_BASE_URL,
+        follow_redirects=True,
+        timeout=httpx.Timeout(timeout),
+        verify=False,
+    ) as client:
+        if timeline == "follow":
+            path = "/ajax/feed/friendstimeline"
+            params: dict[str, int | str] = {"refresh": 4, "count": max_posts}
+        else:
+            path = "/ajax/feed/unreadfriendstimeline"
+            params = {"refresh": 4, "count": max_posts}
+
+        posts = _home_posts(await _fetch_json_payload(client, path, None, sub_cookie, params))[:max_posts]
+        resolved_posts = [await _resolve_long_text(client, None, post, sub_cookie) for post in posts]
+
+    return resolved_posts
 
 
 def _post_id(post: dict[str, Any]) -> str:
@@ -469,5 +531,26 @@ def build_user_feed(req: Request, uid: int, user: dict[str, Any], posts: list[di
                 "avatar": avatar,
             },
             "items": [post_to_jsonfeed_item(post, user, uid) for post in posts],
+        }
+    )
+
+
+def build_home_feed(req: Request, timeline: str, posts: list[dict[str, Any]]) -> JSONFeed:
+    timeline_metadata = {
+        "follow": ("微博关注流", "Weibo Follow Timeline"),
+        "foryou": ("微博推荐流", "Weibo For You Timeline"),
+    }
+    title, description = timeline_metadata[timeline]
+    current_user: dict[str, Any] = {}
+    return JSONFeed.model_validate(
+        {
+            "version": "https://jsonfeed.org/version/1",
+            "title": title,
+            "description": description,
+            "home_page_url": WEIBO_PROFILE_BASE_URL,
+            "feed_url": str(req.url.remove_query_params("cookies")),
+            "icon": WEIBO_FAVICON,
+            "favicon": WEIBO_FAVICON,
+            "items": [post_to_jsonfeed_item(post, current_user, 0) for post in posts],
         }
     )

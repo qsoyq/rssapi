@@ -12,8 +12,10 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 from rssapi.applications.weibo.utils import (
+    build_home_feed,
     build_user_feed,
     extract_sub_cookie,
+    fetch_home_feed_data,
     fetch_user_feed_data,
     post_to_jsonfeed_item,
 )
@@ -56,10 +58,15 @@ def _posts_payload(posts: list[dict[str, Any]]) -> dict[str, Any]:
     return {"ok": 1, "data": {"list": posts, "since_id": "next-page"}}
 
 
+def _home_payload(posts: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"ok": 1, "statuses": posts, "since_id": "next-page"}
+
+
 class LocalWeiboUpstream:
     def __init__(self) -> None:
         self.profile_response: tuple[int, Any, float] = (200, _profile_payload(), 0.0)
         self.page_responses: dict[int, tuple[int, Any, float]] = {}
+        self.home_responses: dict[str, tuple[int, Any, float]] = {}
         self.long_text_responses: dict[str, tuple[int, Any, float]] = {}
         self.requests: list[dict[str, Any]] = []
         controller = self
@@ -74,6 +81,10 @@ class LocalWeiboUpstream:
                     "page": query.get("page", [None])[0],
                     "post_id": query.get("id", [None])[0],
                     "feature": query.get("feature", [None])[0],
+                    "list_id": query.get("list_id", [None])[0],
+                    "count": query.get("count", [None])[0],
+                    "refresh": query.get("refresh", [None])[0],
+                    "since_id": query.get("since_id", [None])[0],
                     "cookie": self.headers.get("Cookie"),
                     "xsrf": self.headers.get("X-XSRF-TOKEN"),
                 }
@@ -87,6 +98,8 @@ class LocalWeiboUpstream:
                 elif parsed.path == "/ajax/statuses/longtext":
                     post_id = query.get("id", [""])[0]
                     status_code, body, delay = controller.long_text_responses.get(post_id, (404, "not found", 0.0))
+                elif parsed.path in {"/ajax/feed/friendstimeline", "/ajax/feed/unreadfriendstimeline"}:
+                    status_code, body, delay = controller.home_responses.get(parsed.path, (404, "not found", 0.0))
                 else:
                     status_code, body, delay = 404, "not found", 0.0
 
@@ -135,6 +148,16 @@ class LocalWeiboUpstream:
         status_code: int = 200,
     ) -> None:
         self.long_text_responses[post_id] = (status_code, body, 0.0)
+
+    def add_home_timeline(
+        self,
+        path: str,
+        posts: list[dict[str, Any]] | Any,
+        *,
+        status_code: int = 200,
+    ) -> None:
+        body = _home_payload(posts) if isinstance(posts, list) else posts
+        self.home_responses[path] = (status_code, body, 0.0)
 
     def start(self) -> None:
         self.thread.start()
@@ -280,6 +303,76 @@ async def test_fetch_user_feed_maps_timeout(weibo_upstream: LocalWeiboUpstream) 
     assert exc_info.value.status_code == 504
 
 
+@pytest.mark.asyncio
+async def test_fetch_follow_home_feed_uses_friend_timeline_and_resolves_long_text(
+    weibo_upstream: LocalWeiboUpstream,
+) -> None:
+    long_post = _post(1, is_long_text=True)
+    advertisement = _post(2)
+    advertisement["isAd"] = True
+    invalid_card = {"id": "card-1", "text_raw": "not a post"}
+    weibo_upstream.add_home_timeline(
+        "/ajax/feed/friendstimeline",
+        [long_post, advertisement, long_post, invalid_card],
+    )
+    weibo_upstream.add_long_text("Mblog1", {"ok": 1, "data": {"longTextContent": "<p>Expanded home text</p>"}})
+
+    posts = await fetch_home_feed_data(
+        "follow",
+        20,
+        sub_cookie="SUB=minimum",
+        base_url=weibo_upstream.base_url,
+    )
+
+    assert [post["idstr"] for post in posts] == ["post-1"]
+    assert posts[0]["text_raw"] == "Expanded home text"
+    home_request = next(
+        request for request in weibo_upstream.requests if request["path"] == "/ajax/feed/friendstimeline"
+    )
+    assert home_request["list_id"] is None
+    assert home_request["count"] == "20"
+    assert home_request["refresh"] == "4"
+    assert home_request["since_id"] is None
+    assert not any(request["path"] == "/ajax/setting/getBasicInfo" for request in weibo_upstream.requests)
+    assert all(request["cookie"] == "SUB=minimum" for request in weibo_upstream.requests)
+
+
+@pytest.mark.asyncio
+async def test_fetch_for_you_home_feed_excludes_follow_only_parameters(weibo_upstream: LocalWeiboUpstream) -> None:
+    weibo_upstream.add_home_timeline("/ajax/feed/unreadfriendstimeline", [_post(1), _post(2)])
+
+    posts = await fetch_home_feed_data(
+        "foryou",
+        1,
+        sub_cookie="SUB=minimum",
+        base_url=weibo_upstream.base_url,
+    )
+
+    assert [post["idstr"] for post in posts] == ["post-1"]
+    home_request = next(
+        request for request in weibo_upstream.requests if request["path"] == "/ajax/feed/unreadfriendstimeline"
+    )
+    assert home_request["list_id"] is None
+    assert home_request["since_id"] is None
+    assert home_request["count"] == "1"
+    assert home_request["refresh"] == "4"
+
+
+@pytest.mark.asyncio
+async def test_fetch_home_feed_requires_statuses_payload(weibo_upstream: LocalWeiboUpstream) -> None:
+    weibo_upstream.add_home_timeline("/ajax/feed/friendstimeline", {"ok": 1})
+
+    with pytest.raises(HTTPException) as exc_info:
+        await fetch_home_feed_data(
+            "follow",
+            20,
+            sub_cookie="SUB=minimum",
+            base_url=weibo_upstream.base_url,
+        )
+
+    assert exc_info.value.status_code == 502
+
+
 def test_post_to_jsonfeed_item_renders_global_media_before_collapsible_text() -> None:
     post = _post(1)
     post["text_raw"] = "<Outer text>\nsecond line"
@@ -347,6 +440,19 @@ def test_build_user_feed_hides_cookie_query_parameter() -> None:
     assert feed.author and feed.author.avatar == "https://cdn.example/avatar.jpg"
 
 
+def test_build_home_feed_hides_cookie_query_parameter_and_uses_post_authors() -> None:
+    post = _post(1)
+    post["user"]["screen_name"] = "首页作者"
+
+    feed = build_home_feed(_request(b"max_posts=12&cookies=SUB%3Dsecret"), "foryou", [post])
+
+    assert feed.title == "微博推荐流"
+    assert str(feed.home_page_url) == "https://weibo.com"
+    assert feed.feed_url and "cookies=" not in str(feed.feed_url)
+    assert feed.author is None
+    assert feed.items[0].author and feed.items[0].author.name == "首页作者"
+
+
 def test_weibo_route_requires_sub_cookie() -> None:
     with TestClient(app) as client:
         no_cookie_response = client.get("/api/rss/weibo/1842706721/posts")
@@ -354,10 +460,18 @@ def test_weibo_route_requires_sub_cookie() -> None:
             "/api/rss/weibo/1842706721/posts",
             headers={"X-Weibo-Cookie": "XSRF-TOKEN=not-enough"},
         )
+        follow_response = client.get("/api/rss/weibo/home/follow")
+        for_you_response = client.get("/api/rss/weibo/home/foryou")
         openapi = client.get("/openapi.json").json()
 
     assert no_cookie_response.status_code == 401
     assert invalid_cookie_response.status_code == 401
+    assert follow_response.status_code == 401
+    assert for_you_response.status_code == 401
     parameters = openapi["paths"]["/api/rss/weibo/{uid}/posts"]["get"]["parameters"]
     max_posts = next(parameter for parameter in parameters if parameter["name"] == "max_posts")
     assert max_posts["schema"]["default"] == 20
+    for endpoint in ("/api/rss/weibo/home/follow", "/api/rss/weibo/home/foryou"):
+        home_parameters = openapi["paths"][endpoint]["get"]["parameters"]
+        home_max_posts = next(parameter for parameter in home_parameters if parameter["name"] == "max_posts")
+        assert home_max_posts["schema"]["default"] == 20
