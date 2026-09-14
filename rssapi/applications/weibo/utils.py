@@ -4,7 +4,9 @@ from html import escape
 from typing import Any
 
 import httpx
+from asyncache import cached
 from bs4 import BeautifulSoup
+from cachetools.keys import hashkey
 from dateutil import parser as date_parser
 from fastapi import HTTPException, Request
 from pydantic import ValidationError
@@ -16,6 +18,8 @@ from rssapi.applications.rss.schemas.rss.jsonfeed import (
     JSONFeedAuthor,
     JSONFeedItem,
 )
+from rssapi.core.settings import settings
+from rssapi.utils.cache import RandomTTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +30,7 @@ WEIBO_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 )
+WEIBO_MEDIA_PATH_PREFIX = "/rss/weibo/media"
 
 
 def extract_sub_cookie(cookies: str | None) -> str | None:
@@ -76,13 +81,14 @@ def _weibo_headers(uid: int | None, sub_cookie: str) -> dict[str, str]:
     }
 
 
-async def _fetch_json_payload(
+async def _get_json_payload(
     client: httpx.AsyncClient,
     path: str,
     uid: int | None,
     sub_cookie: str,
     params: dict[str, int | str],
 ) -> dict[str, Any]:
+    """Transport, JSON parsing and authentication mapping, without the generic ``ok`` check."""
     try:
         response = await client.get(path, params=params, headers=_weibo_headers(uid, sub_cookie))
     except httpx.TimeoutException as exc:
@@ -102,6 +108,18 @@ async def _fetch_json_payload(
         raise HTTPException(status_code=502, detail="Weibo upstream returned an invalid payload")
     if payload.get("ok") == -100:
         raise _authentication_required()
+
+    return payload
+
+
+async def _fetch_json_payload(
+    client: httpx.AsyncClient,
+    path: str,
+    uid: int | None,
+    sub_cookie: str,
+    params: dict[str, int | str],
+) -> dict[str, Any]:
+    payload = await _get_json_payload(client, path, uid, sub_cookie, params)
     if payload.get("ok") != 1:
         raise HTTPException(status_code=502, detail="Weibo upstream returned an invalid payload")
 
@@ -461,7 +479,84 @@ def _body_html(post: dict[str, Any]) -> str:
     return "".join(body_parts)
 
 
-def post_to_jsonfeed_item(post: dict[str, Any], profile_user: dict[str, Any], uid: int) -> JSONFeedItem:
+async def fetch_post_media_video(
+    post_id: str,
+    index: int = 0,
+    *,
+    sub_cookie: str,
+    base_url: str | None = None,
+    timeout: float = 20.0,
+) -> str:
+    """Resolve one video of a Weibo post to a fresh, signature-bearing CDN URL.
+
+    Weibo video URLs embed an ``Expires`` + ``ssig`` pair that dies after roughly 60 minutes, which
+    makes any URL captured in a feed item useless for older posts. ``/ajax/statuses/show`` accepts a
+    single post id, so the signature can be minted on demand for any post - including ones that long
+    since dropped out of the 20-item timeline window.
+    """
+    if not extract_sub_cookie(sub_cookie):
+        raise _authentication_required()
+    if index < 0:
+        raise HTTPException(status_code=404, detail=f"Weibo post has no video at index {index}: {post_id}")
+
+    async with httpx.AsyncClient(
+        base_url=base_url or WEIBO_API_BASE_URL,
+        follow_redirects=True,
+        timeout=httpx.Timeout(timeout),
+        verify=False,
+    ) as client:
+        payload = await _get_json_payload(client, "/ajax/statuses/show", None, sub_cookie, {"id": post_id})
+
+    if payload.get("ok") != 1:
+        raise HTTPException(status_code=404, detail=f"Weibo post not found: {post_id}")
+
+    data = payload.get("data")
+    post = data if isinstance(data, dict) else payload
+    videos = _media(post)[1]
+    if index >= len(videos):
+        raise HTTPException(status_code=404, detail=f"Weibo post has no video at index {index}: {post_id}")
+
+    video_url = validated_http_url(videos[index][0])
+    if not video_url:
+        raise HTTPException(status_code=502, detail="Weibo upstream returned an unusable video URL")
+    return video_url
+
+
+@cached(
+    RandomTTLCache(settings.weibo.media_cache_maxsize, settings.weibo.media_cache_ttl),
+    # 签名只与 post/index 有关，与 Cookie 无关；缓存 TTL 随机 1-2 倍，默认最大 20 分钟，
+    # 必须远小于签名 60 分钟寿命，否则会把过期签名发给客户端。
+    key=lambda post_id, index=0, sub_cookie="", base_url=None, timeout=20.0: hashkey(post_id, index, base_url),
+)
+async def fetch_post_media_video_by_cache(
+    post_id: str,
+    index: int = 0,
+    *,
+    sub_cookie: str,
+    base_url: str | None = None,
+    timeout: float = 20.0,
+) -> str:
+    return await fetch_post_media_video(
+        post_id,
+        index,
+        sub_cookie=sub_cookie,
+        base_url=base_url,
+        timeout=timeout,
+    )
+
+
+def _stable_media_url(req: Request, post_id: str, index: int) -> str:
+    path = f"{settings.api_prefix}{WEIBO_MEDIA_PATH_PREFIX}/{post_id}/{index}"
+    return f"{req.url.scheme}://{req.url.netloc}{path}"
+
+
+def post_to_jsonfeed_item(
+    post: dict[str, Any],
+    profile_user: dict[str, Any],
+    uid: int,
+    *,
+    req: Request | None = None,
+) -> JSONFeedItem:
     post_id = _post_id(post)
     mblogid = str(post.get("mblogid") or post.get("idstr") or post_id)
     item_user = post.get("user")
@@ -479,12 +574,16 @@ def post_to_jsonfeed_item(post: dict[str, Any], profile_user: dict[str, Any], ui
     if images or videos:
         media_html = [f'<img src="{escape(image_url, quote=True)}" alt="Weibo image" />' for image_url in images]
         attachments: list[JSONFeedAttachment] = []
-        for video_url, poster_url in videos:
+        for index, (video_url, poster_url) in enumerate(videos):
+            # 上游签名约 60 分钟过期；只要客户端能带上请求上下文，就改用稳定中转地址。
+            rendered_video_url = _stable_media_url(req, post_id, index) if req is not None and post_id else video_url
             poster = f' poster="{escape(poster_url, quote=True)}"' if poster_url else ""
             media_html.append(
-                f'<video controls preload="metadata" src="{escape(video_url, quote=True)}"{poster}></video>'
+                f'<video controls preload="metadata" src="{escape(rendered_video_url, quote=True)}"{poster}></video>'
             )
-            attachments.append(JSONFeedAttachment.model_validate({"url": video_url, "mime_type": "video/mp4"}))
+            attachments.append(
+                JSONFeedAttachment.model_validate({"url": rendered_video_url, "mime_type": "video/mp4"})
+            )
         content_parts.append(f"<div>{''.join(media_html)}</div>")
     else:
         attachments = []
@@ -530,7 +629,7 @@ def build_user_feed(req: Request, uid: int, user: dict[str, Any], posts: list[di
                 "url": profile_url,
                 "avatar": avatar,
             },
-            "items": [post_to_jsonfeed_item(post, user, uid) for post in posts],
+            "items": [post_to_jsonfeed_item(post, user, uid, req=req) for post in posts],
         }
     )
 
@@ -551,6 +650,6 @@ def build_home_feed(req: Request, timeline: str, posts: list[dict[str, Any]]) ->
             "feed_url": str(req.url.remove_query_params("cookies")),
             "icon": WEIBO_FAVICON,
             "favicon": WEIBO_FAVICON,
-            "items": [post_to_jsonfeed_item(post, current_user, 0) for post in posts],
+            "items": [post_to_jsonfeed_item(post, current_user, 0, req=req) for post in posts],
         }
     )

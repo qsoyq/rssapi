@@ -11,11 +11,14 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
+from rssapi.applications.weibo import router as weibo_router
 from rssapi.applications.weibo.utils import (
     build_home_feed,
     build_user_feed,
     extract_sub_cookie,
     fetch_home_feed_data,
+    fetch_post_media_video,
+    fetch_post_media_video_by_cache,
     fetch_user_feed_data,
     post_to_jsonfeed_item,
 )
@@ -68,6 +71,7 @@ class LocalWeiboUpstream:
         self.page_responses: dict[int, tuple[int, Any, float]] = {}
         self.home_responses: dict[str, tuple[int, Any, float]] = {}
         self.long_text_responses: dict[str, tuple[int, Any, float]] = {}
+        self.show_responses: dict[str, tuple[int, Any, float]] = {}
         self.requests: list[dict[str, Any]] = []
         controller = self
 
@@ -98,6 +102,9 @@ class LocalWeiboUpstream:
                 elif parsed.path == "/ajax/statuses/longtext":
                     post_id = query.get("id", [""])[0]
                     status_code, body, delay = controller.long_text_responses.get(post_id, (404, "not found", 0.0))
+                elif parsed.path == "/ajax/statuses/show":
+                    post_id = query.get("id", [""])[0]
+                    status_code, body, delay = controller.show_responses.get(post_id, (404, "not found", 0.0))
                 elif parsed.path in {"/ajax/feed/friendstimeline", "/ajax/feed/unreadfriendstimeline"}:
                     status_code, body, delay = controller.home_responses.get(parsed.path, (404, "not found", 0.0))
                 else:
@@ -148,6 +155,15 @@ class LocalWeiboUpstream:
         status_code: int = 200,
     ) -> None:
         self.long_text_responses[post_id] = (status_code, body, 0.0)
+
+    def add_show(
+        self,
+        post_id: str,
+        body: Any,
+        *,
+        status_code: int = 200,
+    ) -> None:
+        self.show_responses[post_id] = (status_code, body, 0.0)
 
     def add_home_timeline(
         self,
@@ -475,3 +491,192 @@ def test_weibo_route_requires_sub_cookie() -> None:
         home_parameters = openapi["paths"][endpoint]["get"]["parameters"]
         home_max_posts = next(parameter for parameter in home_parameters if parameter["name"] == "max_posts")
         assert home_max_posts["schema"]["default"] == 20
+
+
+def _video_show_payload(
+    *,
+    video_url: str | None = "https://f.video.weibocdn.com/o0/abc.mp4?Expires=1&ssig=x",
+    mblogid: str = "R7sQzgTAY",
+    is_ad: bool = False,
+) -> dict[str, Any]:
+    post = _post(1)
+    post["idstr"] = mblogid
+    post["mblogid"] = mblogid
+    post["isAd"] = is_ad
+    post["pic_ids"] = []
+    post["pic_infos"] = {}
+    if video_url is None:
+        post["page_info"] = {}
+    else:
+        post["page_info"] = {"urls": {"mp4_720p_mp4": video_url}}
+    return {"ok": 1, **post}
+
+
+@pytest.mark.asyncio
+async def test_fetch_post_media_video_resolves_by_single_post_id(weibo_upstream: LocalWeiboUpstream) -> None:
+    weibo_upstream.add_show("R7sQzgTAY", _video_show_payload())
+
+    url = await fetch_post_media_video("R7sQzgTAY", sub_cookie="SUB=minimum", base_url=weibo_upstream.base_url)
+
+    assert url.startswith("https://f.video.weibocdn.com/")
+    assert "Expires=" in url and "ssig=" in url
+    show_requests = [request for request in weibo_upstream.requests if request["path"] == "/ajax/statuses/show"]
+    assert [request["post_id"] for request in show_requests] == ["R7sQzgTAY"]
+    assert all(request["cookie"] == "SUB=minimum" for request in show_requests)
+
+
+@pytest.mark.asyncio
+async def test_fetch_post_media_video_requires_sub_cookie(weibo_upstream: LocalWeiboUpstream) -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        await fetch_post_media_video("R7sQzgTAY", sub_cookie="XSRF-TOKEN=only", base_url=weibo_upstream.base_url)
+
+    assert exc_info.value.status_code == 401
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [{"ok": 0, "error_code": 20101}, {"ok": -100}])
+async def test_fetch_post_media_video_maps_missing_post_and_bad_auth(
+    weibo_upstream: LocalWeiboUpstream,
+    payload: dict[str, Any],
+) -> None:
+    weibo_upstream.add_show("R7sQzgTAY", payload)
+
+    expected_status = 401 if payload.get("ok") == -100 else 404
+    with pytest.raises(HTTPException) as exc_info:
+        await fetch_post_media_video("R7sQzgTAY", sub_cookie="SUB=minimum", base_url=weibo_upstream.base_url)
+
+    assert exc_info.value.status_code == expected_status
+
+
+@pytest.mark.asyncio
+async def test_fetch_post_media_video_rejects_post_without_video(weibo_upstream: LocalWeiboUpstream) -> None:
+    weibo_upstream.add_show("R7sQzgTAY", _video_show_payload(video_url=None))
+
+    with pytest.raises(HTTPException) as exc_info:
+        await fetch_post_media_video("R7sQzgTAY", sub_cookie="SUB=minimum", base_url=weibo_upstream.base_url)
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_fetch_post_media_video_rejects_out_of_range_index(weibo_upstream: LocalWeiboUpstream) -> None:
+    weibo_upstream.add_show("R7sQzgTAY", _video_show_payload())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await fetch_post_media_video("R7sQzgTAY", 3, sub_cookie="SUB=minimum", base_url=weibo_upstream.base_url)
+
+    assert exc_info.value.status_code == 404
+
+
+def test_weibo_media_route_redirects_to_fresh_signed_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """302 只应把客户端送去新签发的 https 地址，响应本身不可缓存。"""
+
+    async def fake_resolve(post_id: str, index: int = 0, *, sub_cookie: str, **_: Any) -> str:
+        assert post_id == "R7sQzgTAY"
+        assert index == 0
+        assert sub_cookie == "SUB=minimum"
+        return "http://f.video.weibocdn.com/o0/abc.mp4?Expires=1&ssig=x"
+
+    monkeypatch.setattr(weibo_router, "fetch_post_media_video_by_cache", fake_resolve)
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/rss/weibo/media/R7sQzgTAY/0",
+            headers={"X-Weibo-Cookie": "SUB=minimum"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "https://f.video.weibocdn.com/o0/abc.mp4?Expires=1&ssig=x"
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_weibo_media_route_requires_sub_cookie(monkeypatch: pytest.MonkeyPatch) -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/rss/weibo/media/R7sQzgTAY/0", follow_redirects=False)
+
+    assert response.status_code == 401
+
+
+def test_weibo_media_route_validates_post_id() -> None:
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/rss/weibo/media/not-a-valid-id!/0",
+            headers={"X-Weibo-Cookie": "SUB=minimum"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 422
+
+
+def test_weibo_media_route_requires_index_path_segment() -> None:
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/rss/weibo/media/R7sQzgTAY",
+            headers={"X-Weibo-Cookie": "SUB=minimum"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 404
+
+
+def test_build_user_feed_uses_stable_media_url_for_video_src() -> None:
+    post = _post(1)
+    post["page_info"] = {"urls": {"mp4_720p_mp4": "https://f.video.weibocdn.com/o0/abc.mp4?Expires=1&ssig=x"}}
+
+    feed = build_user_feed(_request(), 1842706721, _user(), [post])
+
+    item = feed.items[0]
+    assert item.attachments and [str(attachment.url) for attachment in item.attachments] == [
+        "https://rss.example/api/rss/weibo/media/post-1/0"
+    ]
+    assert "https://rss.example/api/rss/weibo/media/post-1/0" in (item.content_html or "")
+    assert "ssig=x" not in (item.content_html or "")
+
+
+def test_build_user_feed_keeps_upstream_url_without_request_context() -> None:
+    post = _post(1)
+    post["page_info"] = {"urls": {"mp4_720p_mp4": "https://f.video.weibocdn.com/o0/abc.mp4?Expires=1&ssig=x"}}
+
+    item = post_to_jsonfeed_item(post, _user(), 1842706721)
+
+    assert item.attachments and [str(attachment.url) for attachment in item.attachments] == [
+        "https://f.video.weibocdn.com/o0/abc.mp4?Expires=1&ssig=x"
+    ]
+
+
+def test_build_home_feed_uses_stable_media_url_for_video_src() -> None:
+    post = _post(1)
+    post["page_info"] = {"urls": {"mp4_720p_mp4": "https://f.video.weibocdn.com/o0/abc.mp4?Expires=1&ssig=x"}}
+
+    feed = build_home_feed(_request(), "follow", [post])
+
+    item = feed.items[0]
+    assert item.attachments and [str(attachment.url) for attachment in item.attachments] == [
+        "https://rss.example/api/rss/weibo/media/post-1/0"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_fetch_post_media_video_by_cache_reuses_result(weibo_upstream: LocalWeiboUpstream) -> None:
+    """短 TTL 缓存避免播放器 seek 时反复打上游；key 不含 Cookie。"""
+    weibo_upstream.add_show(
+        "cache-key-1", _video_show_payload(mblogid="cache-key-1", video_url="https://cdn.example/a.mp4?x=1")
+    )
+
+    first = await fetch_post_media_video_by_cache(
+        "cache-key-1",
+        0,
+        sub_cookie="SUB=minimum",
+        base_url=weibo_upstream.base_url,
+    )
+    second = await fetch_post_media_video_by_cache(
+        "cache-key-1",
+        0,
+        sub_cookie="SUB=minimum",
+        base_url=weibo_upstream.base_url,
+    )
+
+    assert first == second == "https://cdn.example/a.mp4?x=1"
+    show_requests = [request for request in weibo_upstream.requests if request["path"] == "/ajax/statuses/show"]
+    assert len(show_requests) == 1

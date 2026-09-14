@@ -199,6 +199,16 @@ class BilibiliSettings(BaseSettings):
     playable_url_fetch_concurrency: int = 5
 
 
+class WeiboSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="RSS_WEIBO_",
+        env_file=".env",
+        extra="ignore",
+    )
+    media_cache_ttl: int = 600
+    media_cache_maxsize: int = 4096
+
+
 class InstagramSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="RSS_INSTAGRAM_",
@@ -253,6 +263,7 @@ class AppSettings(BaseSettings):  # type:ignore
     youtube: YoutubeSettings = YoutubeSettings()
     douyin: DouyinSettings = DouyinSettings()
     bilibili: BilibiliSettings = BilibiliSettings()
+    weibo: WeiboSettings = WeiboSettings()
     instagram: InstagramSettings = InstagramSettings()
     tiktok: TikTokSettings = TikTokSettings()
 
