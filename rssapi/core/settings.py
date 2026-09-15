@@ -133,6 +133,11 @@ class TelegramSettings(BaseSettings):
     )
     cache_ttl: int = 900
     cache_maxsize: int = 4096
+    media_cache_ttl: int = 300
+    media_cache_maxsize: int = 4096
+    media_base_url: str = "https://t.me"
+    media_request_timeout: float = 15.0
+    media_retry_count: int = 1
 
 
 class Day1024Settings(BaseSettings):

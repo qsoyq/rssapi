@@ -1,6 +1,8 @@
+import asyncio
 import contextvars
 import json
 import logging
+import re
 import shelve
 import shlex
 import textwrap
@@ -12,7 +14,7 @@ from datetime import datetime
 from functools import partial, reduce
 from pathlib import Path
 from threading import Lock
-from typing import Callable, cast
+from typing import Callable, Literal, cast
 
 import click
 import dateparser
@@ -24,7 +26,7 @@ from bs4 import BeautifulSoup as Soup
 from bs4 import Tag
 
 from rssapi.applications.rss.schemas.adapter import HttpUrl
-from rssapi.applications.telegram.schemas import TelegramChannalMessage
+from rssapi.applications.telegram.schemas import TelegramChannalMessage, TelegramMedia
 
 logger = logging.getLogger(__file__)
 
@@ -356,6 +358,105 @@ class TelegramToolkit:
         return photoUrls
 
     @staticmethod
+    def get_media_by_widget(widget: Tag) -> list[TelegramMedia]:
+        media: list[TelegramMedia] = []
+        seen_urls: set[str] = set()
+        for element in widget.find_all(["a", "video"]):
+            classes = set(element.get("class", []))
+            if element.name == "video" and "tgme_widget_message_video" in classes:
+                url = element.get("src")
+                kind: Literal["image", "video"] = "video"
+                mime_type = "video/mp4"
+            elif element.name == "a" and {
+                "tgme_widget_message_photo_wrap",
+                "js-message_photo",
+            }.intersection(classes):
+                style = element.get("style", "")
+                match = re.search(r"background-image:\s*url\((['\"]?)(.*?)\1\)", style)
+                url = match.group(2) if match else None
+                kind = "image"
+                mime_type = "image/jpeg"
+            else:
+                continue
+            if not isinstance(url, str) or not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            media.append(TelegramMedia(kind=kind, url=url, mime_type=mime_type))
+        return media
+
+    @staticmethod
+    def _validate_cdn_url(url: str) -> str | None:
+        parsed = urllib.parse.urlparse(url)
+        host = (parsed.hostname or "").lower()
+        if parsed.scheme != "https" or not host.endswith((".telesco.pe", ".telegram-cdn.org")):
+            return None
+        return url
+
+    @staticmethod
+    async def get_message_media(
+        channelName: str,
+        message_id: str,
+        *,
+        base_url: str = "https://t.me",
+        timeout: float = 15.0,
+        retries: int = 1,
+    ) -> list[TelegramMedia]:
+        headers = {
+            "Accept": "text/html,application/xhtml+xml",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/136 Safari/537.36",
+        }
+        target_url = f"{base_url.rstrip('/')}/{urllib.parse.quote(channelName)}/{message_id}?embed=1"
+        expected_post = f"{channelName}/{message_id}"
+        last_error: Exception | None = None
+        for attempt in range(retries + 1):
+            try:
+                async with httpx.AsyncClient(
+                    headers=headers,
+                    follow_redirects=True,
+                    timeout=httpx.Timeout(timeout),
+                    verify=False,
+                    trust_env=not base_url.startswith("http://"),
+                ) as client:
+                    response = await client.get(target_url)
+                if response.status_code == 404:
+                    raise LookupError(f"Telegram message not found: {channelName}/{message_id}")
+                if response.status_code >= 500:
+                    last_error = RuntimeError(f"Telegram embed returned HTTP {response.status_code}")
+                    if attempt < retries:
+                        await asyncio.sleep(0.1 * (attempt + 1))
+                        continue
+                    raise last_error
+                if response.status_code >= 400:
+                    raise RuntimeError(f"Telegram embed returned HTTP {response.status_code}")
+                document = Soup(response.text, "lxml")
+                widget = document.select_one("div.js-widget_message")
+                if widget is None or widget.get("data-post") != expected_post:
+                    raise LookupError(f"Telegram message not found: {expected_post}")
+                media = [
+                    item.model_copy(update={"url": validated_url})
+                    for item in TelegramToolkit.get_media_by_widget(widget)
+                    if (validated_url := TelegramToolkit._validate_cdn_url(str(item.url)))
+                ]
+                if not media:
+                    raise LookupError(f"Telegram message has no supported media: {expected_post}")
+                return media
+            except httpx.TimeoutException as exc:
+                last_error = exc
+                if attempt < retries:
+                    await asyncio.sleep(0.1 * (attempt + 1))
+                    continue
+                raise TimeoutError(f"Telegram embed request timed out: {expected_post}") from exc
+            except httpx.RequestError as exc:
+                last_error = exc
+                if attempt < retries:
+                    await asyncio.sleep(0.1 * (attempt + 1))
+                    continue
+                raise ConnectionError(f"Telegram embed request failed: {expected_post}") from exc
+            except (LookupError, RuntimeError):
+                raise
+        raise RuntimeError(f"Telegram embed request failed: {target_url}") from last_error
+
+    @staticmethod
     def get_tags_by_widget(widget: Tag) -> list[str]:
         text = TelegramToolkit.get_text_content_by_widget(widget)
         tags = []
@@ -392,6 +493,8 @@ class TelegramToolkit:
                 published = TelegramToolkit.get_published_by_widget(widget)
                 contentHtml = TelegramToolkit.get_text_outer_html_by_widget(widget)
                 photoUrls = TelegramToolkit.get_photos_by_widget(widget)
+                media = TelegramToolkit.get_media_by_widget(widget)
+                videoUrls = [item.url for item in media if item.kind == "video"]
                 tags = TelegramToolkit.get_tags_by_widget(widget)
             except Exception as e:
                 logger.warning(f"[TelegramToolkit] get channel message error: {e}\nwidget: {widget}")
@@ -410,6 +513,8 @@ class TelegramToolkit:
                 authorName=authorName,
                 contentHtml=contentHtml,
                 photoUrls=photoUrls,
+                videoUrls=videoUrls,
+                media=media,
                 tags=tags,
             )
             messages.append(msg)
