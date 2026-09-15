@@ -1,11 +1,12 @@
 import logging
+import os
 from datetime import datetime, timezone
 from html import escape
 from typing import Any
 
 import httpx
 from asyncache import cached
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from pydantic import ValidationError
 
 from rssapi.applications.rss.schemas.adapter import HttpUrlTypeAdapter
@@ -16,11 +17,13 @@ from rssapi.applications.rss.schemas.rss.jsonfeed import (
 )
 from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
+from rssapi.utils.urls import public_url
 
 logger = logging.getLogger(__name__)
 
 INSTAGRAM_API_BASE_URL = "https://www.instagram.com"
 INSTAGRAM_PROFILE_BASE_URL = "https://www.instagram.com"
+INSTAGRAM_MEDIA_PATH_PREFIX = "/rss/instagram/media"
 INSTAGRAM_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
@@ -125,10 +128,18 @@ async def fetch_user_feed_data(
     page_count = 0
     max_pages = (max_posts + 11) // 12 + 1
 
+    effective_base_url = base_url or INSTAGRAM_API_BASE_URL
+    proxy = None
+    if not effective_base_url.startswith("http://"):
+        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
     async with httpx.AsyncClient(
-        base_url=base_url or INSTAGRAM_API_BASE_URL,
+        base_url=effective_base_url,
         follow_redirects=False,
         timeout=httpx.Timeout(timeout),
+        # Avoid an unrelated ALL_PROXY=socks5 environment value; Instagram is reachable directly.
+        trust_env=False,
+        proxy=proxy,
+        verify=False,
     ) as client:
         while len(items) < max_posts and page_count < max_pages:
             payload = await _fetch_page(client, normalized_username, cursor, cookies)
@@ -194,15 +205,29 @@ def _video_url(media: dict[str, Any]) -> str | None:
     return None
 
 
-def _media_html(media: dict[str, Any]) -> tuple[str, list[JSONFeedAttachment]]:
+def _media_url(req: Request, username: str, post_id: str, index: int) -> str:
+    return public_url(req, f"{settings.api_prefix}{INSTAGRAM_MEDIA_PATH_PREFIX}/{username}/{post_id}/{index}")
+
+
+def _post_media(post: dict[str, Any]) -> list[dict[str, Any]]:
+    carousel_media = post.get("carousel_media")
+    return carousel_media if isinstance(carousel_media, list) and carousel_media else [post]
+
+
+def _media_html(
+    media: dict[str, Any],
+    *,
+    rendered_url: str | None = None,
+) -> tuple[str, list[JSONFeedAttachment]]:
     image_url = _image_url(media)
     media_type = media.get("media_type")
     if media_type == 2:
         video_url = _video_url(media)
         if video_url:
-            safe_video_url = escape(video_url, quote=True)
+            effective_video_url = rendered_url or video_url
+            safe_video_url = escape(effective_video_url, quote=True)
             poster = f' poster="{escape(image_url, quote=True)}"' if image_url else ""
-            attachment = JSONFeedAttachment.model_validate({"url": video_url, "mime_type": "video/mp4"})
+            attachment = JSONFeedAttachment.model_validate({"url": effective_video_url, "mime_type": "video/mp4"})
             return (
                 f'<video controls preload="metadata" src="{safe_video_url}"{poster}></video>',
                 [attachment],
@@ -210,22 +235,29 @@ def _media_html(media: dict[str, Any]) -> tuple[str, list[JSONFeedAttachment]]:
 
     if image_url:
         accessibility_caption = media.get("accessibility_caption") or "Instagram image"
+        effective_image_url = rendered_url or image_url
         return (
-            f'<img src="{escape(image_url, quote=True)}" alt="{escape(str(accessibility_caption), quote=True)}" />',
+            f'<img src="{escape(effective_image_url, quote=True)}" alt="{escape(str(accessibility_caption), quote=True)}" />',
             [],
         )
     return "", []
 
 
-def _post_media_html(post: dict[str, Any]) -> tuple[str, list[JSONFeedAttachment]]:
-    carousel_media = post.get("carousel_media")
-    media = carousel_media if isinstance(carousel_media, list) and carousel_media else [post]
+def _post_media_html(
+    post: dict[str, Any],
+    *,
+    req: Request | None = None,
+    username: str = "",
+    post_id: str = "",
+) -> tuple[str, list[JSONFeedAttachment]]:
+    media = _post_media(post)
     html_parts: list[str] = []
     attachments: list[JSONFeedAttachment] = []
-    for child in media:
+    for index, child in enumerate(media):
         if not isinstance(child, dict):
             continue
-        child_html, child_attachments = _media_html(child)
+        rendered_url = _media_url(req, username, post_id, index) if req is not None and post_id else None
+        child_html, child_attachments = _media_html(child, rendered_url=rendered_url)
         if child_html:
             html_parts.append(child_html)
         attachments.extend(child_attachments)
@@ -258,7 +290,13 @@ def _published_at(post: dict[str, Any]) -> str | None:
         return None
 
 
-def post_to_jsonfeed_item(post: dict[str, Any], profile_user: dict[str, Any], username: str) -> JSONFeedItem:
+def post_to_jsonfeed_item(
+    post: dict[str, Any],
+    profile_user: dict[str, Any],
+    username: str,
+    *,
+    req: Request | None = None,
+) -> JSONFeedItem:
     code = str(post.get("code") or "")
     post_id = str(post.get("id") or post.get("pk") or code)
     post_url = f"{INSTAGRAM_PROFILE_BASE_URL}/p/{code}/" if code else f"{INSTAGRAM_PROFILE_BASE_URL}/{username}/"
@@ -266,7 +304,7 @@ def post_to_jsonfeed_item(post: dict[str, Any], profile_user: dict[str, Any], us
     first_caption_line = next((line.strip() for line in caption.splitlines() if line.strip()), "")
     title = first_caption_line or (f"Instagram post {code}" if code else f"@{username} Instagram post")
 
-    media_html, attachments = _post_media_html(post)
+    media_html, attachments = _post_media_html(post, req=req, username=username, post_id=post_id)
     content_parts: list[str] = []
     if media_html:
         content_parts.append(f"<div>{media_html}</div>")
@@ -294,6 +332,9 @@ def post_to_jsonfeed_item(post: dict[str, Any], profile_user: dict[str, Any], us
     item_user = post.get("user")
     author_user = item_user if isinstance(item_user, dict) else profile_user
     image_url = _image_url(post)
+    rendered_image_url = (
+        _media_url(req, username, post_id, 0) if req is not None and image_url and post_id else image_url
+    )
     return JSONFeedItem.model_validate(
         {
             "id": post_id,
@@ -301,7 +342,7 @@ def post_to_jsonfeed_item(post: dict[str, Any], profile_user: dict[str, Any], us
             "title": title,
             "content_html": "".join(content_parts),
             "summary": caption or None,
-            "image": image_url,
+            "image": rendered_image_url,
             "date_published": _published_at(post),
             "author": _author(author_user, username),
             "attachments": attachments or None,

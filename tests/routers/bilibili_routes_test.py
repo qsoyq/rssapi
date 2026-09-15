@@ -97,11 +97,10 @@ def test_bilibili_user_videos_uses_stable_media_url_for_video_src(client: TestCl
     assert response.status_code == 200, response.text
     item = response.json()["items"][0]
     assert (
-        '<video controls preload="metadata" src="http://testserver/api/rss/bilibili/media/BV1xx411c7mD"'
+        '<video controls preload="metadata" src="https://testserver/api/rss/bilibili/media/BV1xx411c7mD"'
         in item["content_html"]
     )
-    assert "https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000" in item["content_html"]
-    assert item["attachments"][0]["url"] == "https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000"
+    assert item["attachments"][0]["url"] == "https://testserver/api/rss/bilibili/media/BV1xx411c7mD"
 
 
 def test_bilibili_user_videos_uses_configured_media_url_template(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -195,11 +194,10 @@ def test_bilibili_user_submissions_uses_stable_media_url_for_video_src(
     assert response.status_code == 200, response.text
     item = response.json()["items"][0]
     assert (
-        '<video controls preload="metadata" src="http://testserver/api/rss/bilibili/media/BV1xx411c7mD"'
+        '<video controls preload="metadata" src="https://testserver/api/rss/bilibili/media/BV1xx411c7mD"'
         in item["content_html"]
     )
-    assert "https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000" in item["content_html"]
-    assert item["attachments"][0]["url"] == "https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000"
+    assert item["attachments"][0]["url"] == "https://testserver/api/rss/bilibili/media/BV1xx411c7mD"
 
 
 def test_bilibili_user_submissions_validates_page_size(client: TestClient):
@@ -251,7 +249,7 @@ def test_bilibili_user_submissions_converts_upstream_error(client: TestClient, m
     assert "风控校验失败" in response.json()["detail"]
 
 
-def test_bilibili_media_proxies_range_with_video_referer(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+def test_bilibili_media_redirects_to_fresh_cdn_url(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     received: dict[str, str | dict[str, str] | bool] = {}
 
     async def fetch_playable_video_url(client, video):
@@ -270,70 +268,21 @@ def test_bilibili_media_proxies_range_with_video_referer(client: TestClient, mon
         def __exit__(self, exc_type, exc_value, traceback):
             received["session_closed"] = True
 
-    class UpstreamResponse:
-        status_code = 206
-        headers = {
-            "content-type": "video/mp4",
-            "content-length": "4",
-            "content-range": "bytes 0-3/10",
-            "accept-ranges": "bytes",
-        }
-
-        async def aiter_bytes(self, chunk_size: int):
-            received["chunk_size"] = str(chunk_size)
-            yield b"test"
-
-        async def aread(self):
-            return b""
-
-        async def aclose(self):
-            received["response_closed"] = True
-
-    class AsyncClient:
-        def __init__(self, timeout, follow_redirects: bool):
-            received["timeout"] = str(timeout)
-            received["follow_redirects"] = follow_redirects
-
-        def build_request(self, method: str, playable_url: str, headers: dict[str, str]):
-            received["method"] = method
-            received["playable_url"] = playable_url
-            received["headers"] = headers
-            return {"method": method, "url": playable_url, "headers": headers}
-
-        async def send(self, request, stream: bool):
-            received["stream"] = stream
-            return UpstreamResponse()
-
-        async def aclose(self):
-            received["client_closed"] = True
-
     monkeypatch.setattr(bilibili_router, "fetch_playable_video_url", fetch_playable_video_url)
     monkeypatch.setattr(bilibili_router.requests, "Session", Session)
-    monkeypatch.setattr(bilibili_router.httpx, "AsyncClient", AsyncClient)
 
     response = client.get(
         "/api/rss/bilibili/media/BV1xx411c7mD",
-        headers={"Range": "bytes=0-3", "X-Bilibili-Cookie": "SESSDATA=abc"},
+        headers={"X-Bilibili-Cookie": "SESSDATA=abc"},
+        follow_redirects=False,
     )
 
-    assert response.status_code == 206, response.text
-    assert response.content == b"test"
-    assert response.headers["content-range"] == "bytes 0-3/10"
+    assert response.status_code == 302, response.text
+    assert response.headers["location"] == "https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000"
     assert response.headers["cache-control"] == "no-store"
     assert received["video"] == "BV1xx411c7mD"
-    assert received["playable_url"] == "https://upos-sz-mirror.example.com/video.mp4?deadline=1781890000"
-    headers = received["headers"]
-    assert isinstance(headers, dict)
-    assert headers["Referer"] == "https://www.bilibili.com/video/BV1xx411c7mD"
-    assert headers["Range"] == "bytes=0-3"
-    assert headers["Cookie"] == "SESSDATA=abc"
     session_headers = received["session_headers"]
     assert isinstance(session_headers, dict)
     assert session_headers["Referer"] == "https://www.bilibili.com/video/BV1xx411c7mD"
     assert session_headers["Cookie"] == "SESSDATA=abc"
     assert received["session_closed"] is True
-    assert received["method"] == "GET"
-    assert received["stream"] is True
-    assert received["follow_redirects"] is True
-    assert received["response_closed"] is True
-    assert received["client_closed"] is True
