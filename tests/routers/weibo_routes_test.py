@@ -432,6 +432,31 @@ def test_post_to_jsonfeed_item_renders_global_media_before_collapsible_text() ->
     assert item.image and str(item.image) == "https://cdn.example/outer.jpg"
 
 
+def test_target_post_livephoto_keeps_cover_and_uses_stable_https_media_url() -> None:
+    post = _post(1)
+    post["idstr"] = "RfVuw48hg"
+    post["mblogid"] = "RfVuw48hg"
+    post["text_raw"] = "喝酒不叫我？"
+    post["pic_ids"] = ["live-image"]
+    post["pic_infos"] = {
+        "live-image": {
+            "type": "livephoto",
+            "largest": {"url": "https://wx1.sinaimg.cn/large/live-cover.jpg"},
+            "media_info": {"video_url": "http://f.video.weibocdn.com/live.mp4?Expires=1&ssig=x"},
+        }
+    }
+
+    item = post_to_jsonfeed_item(post, _user(), 7499813000, req=_request())
+
+    assert item.image and str(item.image) == "https://wx1.sinaimg.cn/large/live-cover.jpg"
+    assert item.attachments and [str(attachment.url) for attachment in item.attachments] == [
+        "https://rss.example/api/rss/weibo/media/RfVuw48hg/0"
+    ]
+    content_html = item.content_html or ""
+    assert content_html.index("live-cover.jpg") < content_html.index("/media/RfVuw48hg/0")
+    assert "http://f.video.weibocdn.com" not in content_html
+
+
 def test_post_to_jsonfeed_item_skips_invalid_media_urls() -> None:
     post = _post(1)
     post["pic_infos"] = {"bad-image": {"largest": {"url": "javascript:alert(1)"}}}
@@ -523,6 +548,29 @@ async def test_fetch_post_media_video_resolves_by_single_post_id(weibo_upstream:
     show_requests = [request for request in weibo_upstream.requests if request["path"] == "/ajax/statuses/show"]
     assert [request["post_id"] for request in show_requests] == ["R7sQzgTAY"]
     assert all(request["cookie"] == "SUB=minimum" for request in show_requests)
+
+
+@pytest.mark.asyncio
+async def test_fetch_target_post_livephoto_resolves_dynamic_media(weibo_upstream: LocalWeiboUpstream) -> None:
+    post = _post(1)
+    post["idstr"] = "RfVuw48hg"
+    post["mblogid"] = "RfVuw48hg"
+    post["pic_ids"] = ["live-image"]
+    post["pic_infos"] = {
+        "live-image": {
+            "type": "livephoto",
+            "largest": {"url": "https://wx1.sinaimg.cn/large/live-cover.jpg"},
+            "media_info": {"video_url": "https://f.video.weibocdn.com/live.mp4?Expires=1&ssig=x"},
+        }
+    }
+    weibo_upstream.add_show("RfVuw48hg", {"ok": 1, **post})
+
+    url = await fetch_post_media_video("RfVuw48hg", sub_cookie="SUB=minimum", base_url=weibo_upstream.base_url)
+
+    assert url == "https://f.video.weibocdn.com/live.mp4?Expires=1&ssig=x"
+    assert [request["post_id"] for request in weibo_upstream.requests if request["path"] == "/ajax/statuses/show"] == [
+        "RfVuw48hg"
+    ]
 
 
 @pytest.mark.asyncio
