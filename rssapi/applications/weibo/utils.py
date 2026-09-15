@@ -186,6 +186,30 @@ async def _resolve_long_text(
     if isinstance(retweeted_status, dict):
         resolved_post = {**resolved_post}
         resolved_post["retweeted_status"] = await _fetch_long_text(client, uid, retweeted_status, sub_cookie)
+        # Timeline payloads may omit mix_media_info for retweets; fetch the full status when
+        # picture ids are present so Live Photo metadata is available to the feed renderer.
+        mix_items = (
+            retweeted_status.get("mix_media_info", {}).get("items")
+            if isinstance(retweeted_status.get("mix_media_info"), dict)
+            else None
+        )
+        if retweeted_status.get("pic_ids") and not retweeted_status.get("pic_infos") and not mix_items:
+            post_identifier = str(resolved_post.get("mblogid") or _post_id(resolved_post))
+            if post_identifier:
+                try:
+                    payload = await _get_json_payload(
+                        client, "/ajax/statuses/show", uid, sub_cookie, {"id": post_identifier}
+                    )
+                    detailed = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+                    if isinstance(detailed, dict) and isinstance(detailed.get("retweeted_status"), dict):
+                        resolved_post["retweeted_status"] = detailed["retweeted_status"]
+                except HTTPException as exc:
+                    logger.warning(
+                        "Weibo media detail fetch failed: uid=%s post=%s status=%s",
+                        uid,
+                        post_identifier,
+                        exc.status_code,
+                    )
     return resolved_post
 
 
@@ -323,13 +347,10 @@ def _post_text(post: dict[str, Any]) -> str:
 
 def _picture_info(post: dict[str, Any]) -> list[dict[str, Any]]:
     pic_infos = post.get("pic_infos")
-    if not isinstance(pic_infos, dict):
-        return []
-
     ordered: list[dict[str, Any]] = []
     seen_picture_ids: set[str] = set()
     pic_ids = post.get("pic_ids")
-    if isinstance(pic_ids, list):
+    if isinstance(pic_infos, dict) and isinstance(pic_ids, list):
         for picture_id in pic_ids:
             key = str(picture_id)
             picture = pic_infos.get(key)
@@ -337,9 +358,17 @@ def _picture_info(post: dict[str, Any]) -> list[dict[str, Any]]:
                 ordered.append(picture)
                 seen_picture_ids.add(key)
 
-    for picture_id, picture in pic_infos.items():
-        if str(picture_id) not in seen_picture_ids and isinstance(picture, dict):
-            ordered.append(picture)
+    if isinstance(pic_infos, dict):
+        for picture_id, picture in pic_infos.items():
+            if str(picture_id) not in seen_picture_ids and isinstance(picture, dict):
+                ordered.append(picture)
+    mix_media_info = post.get("mix_media_info")
+    mix_items = mix_media_info.get("items") if isinstance(mix_media_info, dict) else None
+    if isinstance(mix_items, list):
+        for item in mix_items:
+            data = item.get("data") if isinstance(item, dict) else None
+            if isinstance(data, dict):
+                ordered.append(data)
     return ordered
 
 
@@ -349,6 +378,32 @@ def _picture_url(picture: dict[str, Any]) -> str | None:
         if isinstance(candidate, dict) and (url := validated_http_url(candidate.get("url"))):
             return url
     return validated_http_url(picture.get("url"))
+
+
+def _nested_media_url(value: Any, fields: tuple[str, ...]) -> str | None:
+    """Find a media URL in the small nested objects returned by Weibo Live posts."""
+    if isinstance(value, dict):
+        for field in fields:
+            candidate = value.get(field)
+            if url := validated_http_url(candidate):
+                return url
+            if isinstance(candidate, dict) and (url := validated_http_url(candidate.get("url"))):
+                return url
+        for child in value.values():
+            if isinstance(child, (dict, list)) and (url := _nested_media_url(child, fields)):
+                return url
+    elif isinstance(value, list):
+        for child in value:
+            if url := _nested_media_url(child, fields):
+                return url
+    return None
+
+
+def _picture_video_url(picture: dict[str, Any]) -> str | None:
+    return _nested_media_url(
+        picture,
+        ("videoSrc", "video_url", "live_video", "liveVideo", "video", "video_hd", "stream_url", "mp4_url"),
+    )
 
 
 def _picture_urls(post: dict[str, Any]) -> list[str]:
@@ -378,7 +433,7 @@ def _video_media(post: dict[str, Any]) -> list[tuple[str, str | None]]:
     seen_video_urls: set[str] = set()
 
     for picture in _picture_info(post):
-        video_url = validated_http_url(picture.get("videoSrc"))
+        video_url = _picture_video_url(picture)
         if video_url and video_url not in seen_video_urls:
             seen_video_urls.add(video_url)
             videos.append((video_url, _picture_url(picture)))
