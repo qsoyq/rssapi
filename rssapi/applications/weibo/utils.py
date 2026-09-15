@@ -20,6 +20,7 @@ from rssapi.applications.rss.schemas.rss.jsonfeed import (
 )
 from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
+from rssapi.utils.urls import public_request_url, public_url
 
 logger = logging.getLogger(__name__)
 
@@ -203,11 +204,13 @@ async def fetch_user_feed_data(
     seen_item_ids: set[str] = set()
     max_pages = (max_posts + 19) // 20 + 1
 
+    effective_base_url = base_url or WEIBO_API_BASE_URL
     async with httpx.AsyncClient(
-        base_url=base_url or WEIBO_API_BASE_URL,
+        base_url=effective_base_url,
         follow_redirects=True,
         timeout=httpx.Timeout(timeout),
         verify=False,
+        trust_env=not effective_base_url.startswith("http://"),
     ) as client:
         profile_data = await _fetch_json(client, "/ajax/profile/info", uid, sub_cookie, {"uid": uid})
         user = profile_data.get("user")
@@ -279,11 +282,13 @@ async def fetch_home_feed_data(
     if not extract_sub_cookie(sub_cookie):
         raise _authentication_required()
 
+    effective_base_url = base_url or WEIBO_API_BASE_URL
     async with httpx.AsyncClient(
-        base_url=base_url or WEIBO_API_BASE_URL,
+        base_url=effective_base_url,
         follow_redirects=True,
         timeout=httpx.Timeout(timeout),
         verify=False,
+        trust_env=not effective_base_url.startswith("http://"),
     ) as client:
         if timeline == "follow":
             path = "/ajax/feed/friendstimeline"
@@ -499,11 +504,13 @@ async def fetch_post_media_video(
     if index < 0:
         raise HTTPException(status_code=404, detail=f"Weibo post has no video at index {index}: {post_id}")
 
+    effective_base_url = base_url or WEIBO_API_BASE_URL
     async with httpx.AsyncClient(
-        base_url=base_url or WEIBO_API_BASE_URL,
+        base_url=effective_base_url,
         follow_redirects=True,
         timeout=httpx.Timeout(timeout),
         verify=False,
+        trust_env=not effective_base_url.startswith("http://"),
     ) as client:
         payload = await _get_json_payload(client, "/ajax/statuses/show", None, sub_cookie, {"id": post_id})
 
@@ -547,7 +554,7 @@ async def fetch_post_media_video_by_cache(
 
 def _stable_media_url(req: Request, post_id: str, index: int) -> str:
     path = f"{settings.api_prefix}{WEIBO_MEDIA_PATH_PREFIX}/{post_id}/{index}"
-    return f"{req.url.scheme}://{req.url.netloc}{path}"
+    return public_url(req, path)
 
 
 def post_to_jsonfeed_item(
@@ -621,7 +628,7 @@ def build_user_feed(req: Request, uid: int, user: dict[str, Any], posts: list[di
             "title": f"{display_name} (@{uid}) 的微博",
             "description": description,
             "home_page_url": profile_url,
-            "feed_url": str(req.url.remove_query_params("cookies")),
+            "feed_url": public_request_url(req, remove_query_params={"cookies"}),
             "icon": avatar or WEIBO_FAVICON,
             "favicon": avatar or WEIBO_FAVICON,
             "author": {
@@ -647,7 +654,7 @@ def build_home_feed(req: Request, timeline: str, posts: list[dict[str, Any]]) ->
             "title": title,
             "description": description,
             "home_page_url": WEIBO_PROFILE_BASE_URL,
-            "feed_url": str(req.url.remove_query_params("cookies")),
+            "feed_url": public_request_url(req, remove_query_params={"cookies"}),
             "icon": WEIBO_FAVICON,
             "favicon": WEIBO_FAVICON,
             "items": [post_to_jsonfeed_item(post, current_user, 0, req=req) for post in posts],

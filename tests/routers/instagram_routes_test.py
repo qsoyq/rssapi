@@ -424,9 +424,64 @@ def test_instagram_route_returns_json_feed_and_uses_cache(
     assert data["home_page_url"] == ""
     assert data["items"][0]["url"] == "https://www.instagram.com/p/Code1/"
     content_html = data["items"][0]["content_html"]
+    assert 'src="https://testserver/api/rss/instagram/media/route_user/post-1/0"' in content_html
+    assert data["items"][0]["image"] == "https://testserver/api/rss/instagram/media/route_user/post-1/0"
     assert content_html.index("</details>") < content_html.index("查看原贴")
     assert second_response.status_code == 200
     assert len(instagram_upstream.requests) == 1
+
+
+def test_instagram_media_redirects_to_refreshed_media_url(
+    instagram_upstream: LocalInstagramUpstream,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    username = "media_route_user"
+    post = _image_post(1, username)
+    instagram_upstream.add(username, None, _payload(username, [post]))
+    monkeypatch.setattr(instagram_utils, "INSTAGRAM_API_BASE_URL", instagram_upstream.base_url)
+
+    with TestClient(app) as client:
+        response = client.get(
+            f"/api/rss/instagram/media/{username}/post-1/0",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "https://cdn.example/image-1.jpg?x=1&y=2"
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_instagram_media_redirects_carousel_video_and_rejects_missing_index(
+    instagram_upstream: LocalInstagramUpstream,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    username = "carousel_media_user"
+    post = _image_post(2, username)
+    post["media_type"] = 8
+    post["carousel_media"] = [
+        _image_post(21, username),
+        {
+            "media_type": 2,
+            "video_versions": [{"url": "https://cdn.example/video.mp4?signature=fresh"}],
+            "image_versions2": {"candidates": [{"url": "https://cdn.example/poster.jpg"}]},
+        },
+    ]
+    instagram_upstream.add(username, None, _payload(username, [post]))
+    monkeypatch.setattr(instagram_utils, "INSTAGRAM_API_BASE_URL", instagram_upstream.base_url)
+
+    with TestClient(app) as client:
+        video_response = client.get(
+            f"/api/rss/instagram/media/{username}/post-2/1",
+            follow_redirects=False,
+        )
+        missing_response = client.get(
+            f"/api/rss/instagram/media/{username}/post-2/2",
+            follow_redirects=False,
+        )
+
+    assert video_response.status_code == 302
+    assert video_response.headers["location"] == "https://cdn.example/video.mp4?signature=fresh"
+    assert missing_response.status_code == 404
 
 
 def test_instagram_route_preserves_profile_home_page_when_clearing_is_disabled(

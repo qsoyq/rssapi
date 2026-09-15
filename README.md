@@ -243,6 +243,8 @@ Each data source can configure cache size (`*_MAXSIZE`, max entries) and expiry 
 
 > 注：缓存配置在进程启动时读取，修改环境变量后需要重启服务才能生效。
 
+Instagram、Telegram 和 Bilibili 的媒体字段使用稳定的 RSSAPI 地址；访问媒体地址时会重新解析上游资源并返回 `302`，响应带 `Cache-Control: no-store`。这些地址不会缓存上游短期签名，私有账号仍需在请求头中提供对应 Cookie。
+
 #### 微博 (`RSS_WEIBO_`)
 
 | 环境变量 | 默认值 | 说明 |

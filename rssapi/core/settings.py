@@ -21,6 +21,15 @@ class MiddlewareSettings(BaseSettings):
     clear_home_page_url_enabled: bool = True
 
 
+class PublicURLSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="RSS_PUBLIC_",
+        env_file=".env",
+        extra="ignore",
+    )
+    scheme: Literal["http", "https"] = "https"
+
+
 class TwitterSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="RSS_TWITTER_",
@@ -250,6 +259,7 @@ class AppSettings(BaseSettings):  # type:ignore
     twitter: TwitterSettings = TwitterSettings()
     reddit: RedditSettings = RedditSettings()
     middleware: MiddlewareSettings = MiddlewareSettings()
+    public_url: PublicURLSettings = PublicURLSettings()
     github: GithubSettings = GithubSettings()
     v2fly: V2flySettings = V2flySettings()
     gofans: GofansSettings = GofansSettings()
