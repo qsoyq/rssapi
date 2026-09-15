@@ -175,6 +175,11 @@ Each data source can configure cache size (`*_MAXSIZE`, max entries) and expiry 
 | --- | --- | --- |
 | `RSS_TELEGRAM_CACHE_TTL` | `900` | Telegram 频道消息缓存 TTL |
 | `RSS_TELEGRAM_CACHE_MAXSIZE` | `4096` | Telegram 频道消息缓存条目数 |
+| `RSS_TELEGRAM_MEDIA_CACHE_TTL` | `300` | Telegram 媒体 CDN 地址缓存 TTL |
+| `RSS_TELEGRAM_MEDIA_CACHE_MAXSIZE` | `4096` | Telegram 媒体缓存条目数 |
+| `RSS_TELEGRAM_MEDIA_REQUEST_TIMEOUT` | `15` | Telegram 媒体 embed 请求超时（秒） |
+| `RSS_TELEGRAM_MEDIA_RETRY_COUNT` | `1` | Telegram 媒体 embed 临时失败重试次数 |
+| `RSS_TELEGRAM_MEDIA_BASE_URL` | `https://t.me` | Telegram embed 上游地址，主要用于测试或代理 |
 
 #### 1024.day (`RSS_DAY1024_`)
 

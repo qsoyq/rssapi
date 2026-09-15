@@ -1,13 +1,16 @@
 import asyncio
 import logging
+from html import escape
 from itertools import chain
 from typing import Any
 
 from asyncache import cached
+from cachetools.keys import hashkey
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 from fastapi.responses import RedirectResponse
 
-from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedItem
+from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedAttachment, JSONFeedItem
+from rssapi.applications.telegram.schemas import TelegramMedia
 from rssapi.core.responses import PrettyJSONFeedResponse
 from rssapi.core.settings import settings
 from rssapi.utils.basic import TelegramToolkit
@@ -75,27 +78,34 @@ async def fetch_feeds(channels: list[str], *, req: Request | None = None) -> lis
             },
         }
 
-        if message.photoUrls:
-            payload["image"] = message.photoUrls[0]
-            payload["banner_image"] = message.photoUrls[0]
-            photosOuterHTML = ""
-            for index, url in enumerate(message.photoUrls):
+        media_items = message.media or [
+            TelegramMedia(kind="image", url=url, mime_type="image/jpeg") for url in message.photoUrls or []
+        ]
+        if media_items:
+            attachments: list[JSONFeedAttachment] = []
+            media_html: list[str] = []
+            for index, media in enumerate(media_items):
                 rendered_url = (
                     public_url(
                         req, f"{settings.api_prefix}/rss/telegram/media/{message.channelName}/{message.msgid}/{index}"
                     )
                     if req is not None
-                    else str(url)
+                    else str(media.url)
                 )
-                tag = TelegramToolkit.generate_img_tag(rendered_url)
-                photosOuterHTML = f"{photosOuterHTML}{tag}"
-            payload["content_html"] = f"🖼️ {photosOuterHTML}{payload['content_html']}"
-            if req is not None:
-                stable_url = public_url(
-                    req, f"{settings.api_prefix}/rss/telegram/media/{message.channelName}/{message.msgid}/0"
-                )
-                payload["image"] = stable_url
-                payload["banner_image"] = stable_url
+                safe_url = escape(rendered_url, quote=True)
+                if media.kind == "video":
+                    media_html.append(f'<video controls preload="metadata" src="{safe_url}"></video>')
+                    attachments.append(
+                        JSONFeedAttachment.model_validate({"url": rendered_url, "mime_type": media.mime_type})
+                    )
+                else:
+                    media_html.append(TelegramToolkit.generate_img_tag(safe_url))
+                    if req is not None and payload.get("image") is None:
+                        payload["image"] = rendered_url
+                        payload["banner_image"] = rendered_url
+            payload["content_html"] = f"🖼️ {''.join(media_html)}{payload['content_html']}"
+            if attachments:
+                payload["attachments"] = attachments
 
         items.append(JSONFeedItem(**payload))
 
@@ -112,13 +122,31 @@ async def media(
     message_id: str = Path(..., pattern=r"^\d+$"),
     index: int = Path(..., ge=0, le=9),
 ) -> RedirectResponse:
-    messages = await TelegramToolkit.get_channel_messages(channel)
-    message = next((item for item in messages if str(item.msgid) == message_id), None)
-    if message is None:
-        raise HTTPException(status_code=404, detail=f"Telegram message not found: {channel}/{message_id}")
-    if not message.photoUrls or index >= len(message.photoUrls):
-        raise HTTPException(status_code=404, detail=f"Telegram message has no image at index {index}: {message_id}")
-    return RedirectResponse(str(message.photoUrls[index]), status_code=302, headers={"Cache-Control": "no-store"})
+    media_items = await get_message_media(channel, message_id)
+    if index >= len(media_items):
+        raise HTTPException(status_code=404, detail=f"Telegram message has no media at index {index}: {message_id}")
+    return RedirectResponse(str(media_items[index].url), status_code=302, headers={"Cache-Control": "no-store"})
+
+
+@cached(
+    RandomTTLCache(settings.telegram.media_cache_maxsize, settings.telegram.media_cache_ttl),
+    key=lambda channel, message_id: hashkey(channel, message_id),
+)
+async def get_message_media(channel: str, message_id: str) -> list[TelegramMedia]:
+    try:
+        return await TelegramToolkit.get_message_media(
+            channel,
+            message_id,
+            base_url=settings.telegram.media_base_url,
+            timeout=settings.telegram.media_request_timeout,
+            retries=settings.telegram.media_retry_count,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except (ConnectionError, RuntimeError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @cached(RandomTTLCache(settings.telegram.cache_maxsize, settings.telegram.cache_ttl))
