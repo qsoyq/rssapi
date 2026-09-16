@@ -120,7 +120,7 @@ async def fetch_feeds(channels: list[str], *, req: Request | None = None) -> lis
 async def media(
     channel: str = Path(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_]+$"),
     message_id: str = Path(..., pattern=r"^\d+$"),
-    index: int = Path(..., ge=0, le=9),
+    index: int = Path(..., ge=0),
 ) -> RedirectResponse:
     media_items = await get_message_media(channel, message_id)
     if index >= len(media_items):
