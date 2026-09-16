@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 from rssapi.applications.weibo import router as weibo_router
+from rssapi.applications.weibo import utils as weibo_utils
 from rssapi.applications.weibo.utils import (
     build_home_feed,
     build_user_feed,
@@ -637,6 +638,46 @@ def test_weibo_media_route_redirects_to_fresh_signed_url(monkeypatch: pytest.Mon
     assert response.status_code == 302
     assert response.headers["location"] == "https://f.video.weibocdn.com/o0/abc.mp4?Expires=1&ssig=x"
     assert response.headers["cache-control"] == "no-store"
+
+
+def test_weibo_media_route_accepts_index_above_nine_and_checks_actual_length(
+    weibo_upstream: LocalWeiboUpstream,
+) -> None:
+    post_id = "ManyVideos1"
+    post = _post(1)
+    post["idstr"] = post_id
+    post["mblogid"] = post_id
+    post["page_info"] = {}
+    post["pic_ids"] = [f"live-{index}" for index in range(11)]
+    post["pic_infos"] = {
+        f"live-{index}": {
+            "type": "livephoto",
+            "largest": {"url": f"https://wx1.sinaimg.cn/large/cover-{index}.jpg"},
+            "media_info": {"video_url": f"https://f.video.weibocdn.com/live-{index}.mp4?Expires=1&ssig=x"},
+        }
+        for index in range(11)
+    }
+    weibo_upstream.add_show(post_id, {"ok": 1, **post})
+    previous_base_url = weibo_utils.WEIBO_API_BASE_URL
+    weibo_utils.WEIBO_API_BASE_URL = weibo_upstream.base_url
+    try:
+        with TestClient(app) as client:
+            existing = client.get(
+                f"/api/rss/weibo/media/{post_id}/10",
+                headers={"X-Weibo-Cookie": "SUB=minimum"},
+                follow_redirects=False,
+            )
+            missing = client.get(
+                f"/api/rss/weibo/media/{post_id}/11",
+                headers={"X-Weibo-Cookie": "SUB=minimum"},
+                follow_redirects=False,
+            )
+    finally:
+        weibo_utils.WEIBO_API_BASE_URL = previous_base_url
+
+    assert existing.status_code == 302
+    assert existing.headers["location"] == "https://f.video.weibocdn.com/live-10.mp4?Expires=1&ssig=x"
+    assert missing.status_code == 404
 
 
 def test_weibo_media_route_requires_sub_cookie(monkeypatch: pytest.MonkeyPatch) -> None:

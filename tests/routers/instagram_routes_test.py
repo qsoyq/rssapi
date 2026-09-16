@@ -484,6 +484,32 @@ def test_instagram_media_redirects_carousel_video_and_rejects_missing_index(
     assert missing_response.status_code == 404
 
 
+def test_instagram_media_accepts_index_above_nine_and_checks_actual_length(
+    instagram_upstream: LocalInstagramUpstream,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    username = "large_carousel_user"
+    post = _image_post(3, username)
+    post["media_type"] = 8
+    post["carousel_media"] = [_image_post(index, username) for index in range(11)]
+    instagram_upstream.add(username, None, _payload(username, [post]))
+    monkeypatch.setattr(instagram_utils, "INSTAGRAM_API_BASE_URL", instagram_upstream.base_url)
+
+    with TestClient(app) as client:
+        existing = client.get(
+            f"/api/rss/instagram/media/{username}/post-3/10",
+            follow_redirects=False,
+        )
+        missing = client.get(
+            f"/api/rss/instagram/media/{username}/post-3/11",
+            follow_redirects=False,
+        )
+
+    assert existing.status_code == 302
+    assert existing.headers["location"] == "https://cdn.example/image-10.jpg?x=1&y=2"
+    assert missing.status_code == 404
+
+
 def test_instagram_route_preserves_profile_home_page_when_clearing_is_disabled(
     instagram_upstream: LocalInstagramUpstream,
     monkeypatch: pytest.MonkeyPatch,

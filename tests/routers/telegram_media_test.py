@@ -68,9 +68,17 @@ def embed_server() -> Generator[ThreadingHTTPServer, None, None]:
                     self.send_response(404)
                     self.end_headers()
                     return
+                extra_photos = ""
+                if message_id == "125":
+                    extra_photos = "".join(
+                        f'<a class="tgme_widget_message_photo_wrap" '
+                        f"style=\"background-image:url('https://cdn5.telesco.pe/file/photo-{index}.jpg')\"></a>"
+                        for index in range(2, 11)
+                    )
                 body = f"""<div class="tgme_widget_message js-widget_message" data-post="botmzt/{message_id}">
 <a class="tgme_widget_message_photo_wrap" style="background-image:url('https://cdn5.telesco.pe/file/photo.jpg')"></a>
 <video class="tgme_widget_message_video" src="https://cdn5.telesco.pe/file/video.mp4?token=fresh"></video>
+{extra_photos}
  </div>""".encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html")
@@ -133,3 +141,22 @@ def test_telegram_media_route_reports_missing_message(embed_server: ThreadingHTT
         telegram_router.settings.telegram.media_base_url = previous_base_url
 
     assert response.status_code == 404
+
+
+def test_telegram_media_route_accepts_index_above_nine_and_checks_actual_length(
+    embed_server: ThreadingHTTPServer,
+) -> None:
+    previous_base_url = telegram_router.settings.telegram.media_base_url
+    telegram_router.settings.telegram.media_base_url = f"http://127.0.0.1:{embed_server.server_port}"
+    try:
+        with TestClient(app) as client:
+            existing = client.get("/api/rss/telegram/media/botmzt/125/10", follow_redirects=False)
+            missing = client.get("/api/rss/telegram/media/botmzt/125/11", follow_redirects=False)
+            negative = client.get("/api/rss/telegram/media/botmzt/125/-1", follow_redirects=False)
+    finally:
+        telegram_router.settings.telegram.media_base_url = previous_base_url
+
+    assert existing.status_code == 302
+    assert existing.headers["location"] == "https://cdn5.telesco.pe/file/photo-10.jpg"
+    assert missing.status_code == 404
+    assert negative.status_code == 422

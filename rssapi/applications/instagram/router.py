@@ -29,7 +29,7 @@ router = APIRouter(tags=["RSS"], prefix="/rss/instagram")
 async def media(
     username: str = Path(..., min_length=1, max_length=30, pattern=r"^[A-Za-z0-9._]+$"),
     post_id: str = Path(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"),
-    index: int = Path(..., ge=0, le=9),
+    index: int = Path(..., ge=0),
     max_posts: int = Query(12, ge=1, le=50),
     cookies: str | None = Query(None, max_length=32768),
     x_instagram_cookie: str | None = Header(None, alias="X-Instagram-Cookie", max_length=32768),

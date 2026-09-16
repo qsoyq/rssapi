@@ -127,7 +127,7 @@ async def media(
         pattern=r"^[A-Za-z0-9]+$",
         description="微博帖子 id（idstr）或 mblogid",
     ),
-    index: int = Path(..., ge=0, le=9, description="同一帖子内多个视频时的序号"),
+    index: int = Path(..., ge=0, description="同一帖子内多个视频时的序号"),
     cookies: str | None = Query(
         None,
         description="微博 Cookie；仅使用其中的 SUB，建议通过 X-Weibo-Cookie 请求头传递以避免泄露到订阅 URL",
