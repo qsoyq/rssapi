@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx
 from asyncache import cached
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from cachetools.keys import hashkey
 from dateutil import parser as date_parser
 from fastapi import HTTPException, Request
@@ -18,6 +18,7 @@ from rssapi.applications.rss.schemas.rss.jsonfeed import (
     JSONFeedAuthor,
     JSONFeedItem,
 )
+from rssapi.applications.weibo.emotions import emotion_map_for_post, render_emotion_text
 from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
 from rssapi.utils.urls import public_request_url, public_url
@@ -172,6 +173,7 @@ async def _fetch_long_text(
 
     updated_post = {**post}
     updated_post["text_raw"] = _html_to_text(long_text)
+    updated_post["text"] = long_text
     return updated_post
 
 
@@ -333,6 +335,12 @@ def _post_id(post: dict[str, Any]) -> str:
 
 def _html_to_text(value: str) -> str:
     soup = BeautifulSoup(value, "html.parser")
+    for image in soup.find_all("img"):
+        if not isinstance(image, Tag):
+            continue
+        alt = image.get("alt")
+        image.replace_with(alt if isinstance(alt, str) and alt else "")
+    soup.smooth()
     lines = [line.strip() for line in soup.get_text("\n").splitlines() if line.strip()]
     return "\n".join(lines)
 
@@ -509,8 +517,9 @@ def _published_at(post: dict[str, Any]) -> str | None:
 
 def _body_html(post: dict[str, Any]) -> str:
     body_parts: list[str] = []
+    emotion_map = emotion_map_for_post(post)
     if text := _post_text(post):
-        body_parts.append(f"<p>{escape(text).replace(chr(10), '<br>')}</p>")
+        body_parts.append(f"<p>{render_emotion_text(text, emotion_map)}</p>")
 
     retweeted_status = post.get("retweeted_status")
     if isinstance(retweeted_status, dict):
@@ -521,7 +530,7 @@ def _body_html(post: dict[str, Any]) -> str:
             else "原微博"
         )
         retweet_text = _post_text(retweeted_status) or "原微博已不可见"
-        safe_retweet_text = escape(retweet_text).replace("\n", "<br>")
+        safe_retweet_text = render_emotion_text(retweet_text, emotion_map)
         body_parts.append(f"<p>转发 @{escape(retweet_name)}：</p><blockquote><p>{safe_retweet_text}</p></blockquote>")
 
     source = post.get("source")

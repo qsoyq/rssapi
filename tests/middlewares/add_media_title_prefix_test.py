@@ -118,3 +118,33 @@ class TestAddMediaTitlePrefixMiddleware:
         result = middleware.transform_item(item)
 
         assert result["title"] == "🖼️ ▶️ Existing title"
+
+    def test_weibo_emoji_does_not_add_preview_image_prefix(self, middleware: AddMediaTitlePrefixMiddleware):
+        item = _make_item(
+            title="门口遇到两只猫猫打架，奶牛猫在追狸花猫。我高声喝止！",
+            content_html=(
+                "<details><summary>查看正文</summary><p>"
+                '<img class="weibo-emoji" alt="[兔子]" '
+                'src="https://face.t.sinajs.cn/t4/appstyle/expression/ext/normal/ba/201810_tuzi_mobile.png" '
+                'width="20" height="20" />今天又维护了猫猫世界的和平</p></details>'
+            ),
+        )
+
+        result = middleware.transform_item(item)
+
+        assert result["title"] == "门口遇到两只猫猫打架，奶牛猫在追狸花猫。我高声喝止！"
+        assert "<img" not in result["title"]
+
+    def test_weibo_emoji_with_content_image_still_adds_preview_prefix(self, middleware: AddMediaTitlePrefixMiddleware):
+        item = _make_item(
+            title="睡觉的两小只[兔子]",
+            content_html=(
+                '<div><img src="https://wx2.sinaimg.cn/large/cat.jpg" alt="Weibo image" /></div>'
+                '<p><img class="weibo-emoji" alt="[兔子]" '
+                'src="https://face.t.sinajs.cn/t4/appstyle/expression/ext/normal/ba/201810_tuzi_mobile.png" /></p>'
+            ),
+        )
+
+        result = middleware.transform_item(item)
+
+        assert result["title"] == "🖼️ 睡觉的两小只[兔子]"

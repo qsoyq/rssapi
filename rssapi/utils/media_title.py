@@ -30,7 +30,7 @@ def has_video(document: Soup) -> bool:
 
 def has_gallery(document: Soup) -> bool:
     images = [cast(Tag, img) for img in document.find_all("img")]
-    content_images = [img for img in images if not is_nga_smile_image(img)]
+    content_images = [img for img in images if not is_inline_emoji_image(img)]
     non_gif_images = [img for img in content_images if not is_gif_image(img)]
     return len(non_gif_images) > 1
 
@@ -41,14 +41,17 @@ def has_gif(document: Soup) -> bool:
             return True
 
     for image in document.find_all("img"):
-        if is_gif_image(cast(Tag, image)):
+        image = cast(Tag, image)
+        if is_inline_emoji_image(image):
+            continue
+        if is_gif_image(image):
             return True
     return False
 
 
 def has_preview_image(document: Soup) -> bool:
     images = [cast(Tag, img) for img in document.find_all("img")]
-    images = [img for img in images if not is_nga_smile_image(img)]
+    images = [img for img in images if not is_inline_emoji_image(img)]
     return len(images) == 1 and not is_gif_image(images[0])
 
 
@@ -66,9 +69,27 @@ def is_gif_image(image: Tag) -> bool:
     return ".gif" in src
 
 
-def is_nga_smile_image(image: Tag) -> bool:
+def is_inline_emoji_image(image: Tag) -> bool:
+    classes = image.get("class")
+    if isinstance(classes, str):
+        class_values = classes.split()
+    elif isinstance(classes, list):
+        class_values = [str(item) for item in classes]
+    else:
+        class_values = []
+    if "weibo-emoji" in class_values:
+        return True
     src = (image.get("src") or "").strip().lower()
-    return "/ngabbs/post/smile/" in src
+    return (
+        "/ngabbs/post/smile/" in src
+        or "face.t.sinajs.cn" in src
+        or "/emoticon/" in src
+        or "/appstyle/expression/" in src
+    )
+
+
+def is_nga_smile_image(image: Tag) -> bool:
+    return is_inline_emoji_image(image)
 
 
 MEDIA_TITLE_RULES: dict[str, MediaTitleDetector] = {
