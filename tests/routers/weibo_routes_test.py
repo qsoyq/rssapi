@@ -769,3 +769,99 @@ async def test_fetch_post_media_video_by_cache_reuses_result(weibo_upstream: Loc
     assert first == second == "https://cdn.example/a.mp4?x=1"
     show_requests = [request for request in weibo_upstream.requests if request["path"] == "/ajax/statuses/show"]
     assert len(show_requests) == 1
+
+
+CAT_FIGHT_POST_TEXT = (
+    "门口遇到两只猫猫打架，奶牛猫在追狸花猫。我高声喝止！\n\n"
+    "“猫猫不许打架！”\n\n"
+    "两个都顿了一秒，狸花猫猫看奶牛不动，咻一下不见了。\n\n"
+    "[兔子]今天又维护了猫猫世界的和平"
+)
+RABBIT_EMOTION_URL = "https://face.t.sinajs.cn/t4/appstyle/expression/ext/normal/ba/201810_tuzi_mobile.png"
+
+
+def test_post_to_jsonfeed_item_renders_weibo_emotions_in_body_not_title() -> None:
+    post = _post(1)
+    post["text_raw"] = CAT_FIGHT_POST_TEXT
+    post["pic_ids"] = []
+    post["pic_infos"] = {}
+
+    item = post_to_jsonfeed_item(post, _user(), 6419748247)
+
+    assert item.title == "门口遇到两只猫猫打架，奶牛猫在追狸花猫。我高声喝止！"
+    assert "<img" not in (item.title or "")
+    content_html = item.content_html or ""
+    assert 'class="weibo-emoji"' in content_html
+    assert 'alt="[兔子]"' in content_html
+    assert RABBIT_EMOTION_URL in content_html
+    assert "[兔子]今天又维护了猫猫世界的和平" not in content_html
+    assert "今天又维护了猫猫世界的和平" in content_html
+
+
+def test_post_to_jsonfeed_item_keeps_emotion_phrase_in_title() -> None:
+    post = _post(1)
+    post["text_raw"] = "[兔子]今天又维护了猫猫世界的和平"
+    post["pic_ids"] = []
+    post["pic_infos"] = {}
+
+    item = post_to_jsonfeed_item(post, _user(), 6419748247)
+
+    assert item.title == "[兔子]今天又维护了猫猫世界的和平"
+    assert "<img" not in (item.title or "")
+    assert 'class="weibo-emoji"' in (item.content_html or "")
+
+
+def test_post_to_jsonfeed_item_keeps_unknown_bracket_codes() -> None:
+    post = _post(1)
+    post["text_raw"] = "看见了[不是表情]和[兔子]"
+    post["pic_ids"] = []
+    post["pic_infos"] = {}
+
+    item = post_to_jsonfeed_item(post, _user(), 6419748247)
+    content_html = item.content_html or ""
+
+    assert "[不是表情]" in content_html
+    assert 'alt="[兔子]"' in content_html
+    assert RABBIT_EMOTION_URL in content_html
+
+
+def test_post_to_jsonfeed_item_prefers_emotion_url_from_post_html() -> None:
+    post = _post(1)
+    post["text_raw"] = "自定义[兔子]"
+    post["text"] = '自定义<img alt="[兔子]" src="https://h5.sinaimg.cn/m/emoticon/icon/others/d_tuzi.png" />'
+    post["pic_ids"] = []
+    post["pic_infos"] = {}
+
+    item = post_to_jsonfeed_item(post, _user(), 6419748247)
+    content_html = item.content_html or ""
+
+    assert "https://h5.sinaimg.cn/m/emoticon/icon/others/d_tuzi.png" in content_html
+    assert RABBIT_EMOTION_URL not in content_html
+
+
+@pytest.mark.asyncio
+async def test_fetch_user_feed_preserves_long_text_emotion_alt(
+    weibo_upstream: LocalWeiboUpstream,
+) -> None:
+    post = _post(1, is_long_text=True)
+    post["text_raw"] = "truncated"
+    weibo_upstream.add_page(1, [post])
+    weibo_upstream.add_long_text(
+        "Mblog1",
+        {
+            "ok": 1,
+            "data": {"longTextContent": (f'<p>Expanded <img alt="[兔子]" src="{RABBIT_EMOTION_URL}" /></p>')},
+        },
+    )
+
+    _, posts = await fetch_user_feed_data(
+        1842706721,
+        20,
+        sub_cookie="SUB=minimum",
+        base_url=weibo_upstream.base_url,
+    )
+
+    assert posts[0]["text_raw"] == "Expanded [兔子]"
+    assert "[兔子]" in posts[0]["text"]
+    item = post_to_jsonfeed_item(posts[0], _user(), 1842706721)
+    assert RABBIT_EMOTION_URL in (item.content_html or "")
