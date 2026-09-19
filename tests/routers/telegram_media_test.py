@@ -30,8 +30,8 @@ async def _messages(_channel: str) -> list[TelegramChannalMessage]:
         TelegramChannalMessage(
             head="https://cdn.example/avatar.jpg",
             msgid="123",
-            channelName="example",
-            username="example",
+            channelName="legacy_example",
+            username="canonical_example",
             title="Photo",
             text="Photo",
             updated="2026-09-15T00:00:00Z",
@@ -50,7 +50,7 @@ async def test_telegram_feed_uses_stable_media_url(monkeypatch: pytest.MonkeyPat
     items = await fetch_feeds(["example"], req=_request())
 
     assert len(items) == 1
-    stable_url = "https://rss.example/api/rss/telegram/media/example/123/0"
+    stable_url = "https://rss.example/api/rss/telegram/media/canonical_example/123/0"
     assert str(items[0].image) == stable_url
     assert stable_url in (items[0].content_html or "")
 
@@ -62,12 +62,19 @@ def embed_server() -> Generator[ThreadingHTTPServer, None, None]:
 
         def do_GET(self):  # noqa: N802
             Handler.requests += 1
-            if self.path.startswith("/botmzt/") and self.path.endswith("?embed=1"):
-                message_id = self.path.split("/")[2].split("?")[0]
+            if self.path.endswith("?embed=1"):
+                path, _, _ = self.path.partition("?")
+                channel, message_id = path.strip("/").split("/", 1)
+                if channel not in {"botmzt", "legacy"}:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
                 if message_id == "999":
                     self.send_response(404)
                     self.end_headers()
                     return
+                canonical_channel = "botmzt" if channel == "legacy" else channel
+                canonical_message_id = "999" if message_id == "127" else message_id
                 extra_photos = ""
                 if message_id == "125":
                     extra_photos = "".join(
@@ -75,7 +82,7 @@ def embed_server() -> Generator[ThreadingHTTPServer, None, None]:
                         f"style=\"background-image:url('https://cdn5.telesco.pe/file/photo-{index}.jpg')\"></a>"
                         for index in range(2, 11)
                     )
-                body = f"""<div class="tgme_widget_message js-widget_message" data-post="botmzt/{message_id}">
+                body = f"""<div class="tgme_widget_message js-widget_message" data-post="{canonical_channel}/{canonical_message_id}">
 <a class="tgme_widget_message_photo_wrap" style="background-image:url('https://cdn5.telesco.pe/file/photo.jpg')"></a>
 <video class="tgme_widget_message_video" src="https://cdn5.telesco.pe/file/video.mp4?token=fresh"></video>
 {extra_photos}
@@ -137,6 +144,35 @@ def test_telegram_media_route_reports_missing_message(embed_server: ThreadingHTT
     try:
         with TestClient(app) as client:
             response = client.get("/api/rss/telegram/media/botmzt/999/0", follow_redirects=False)
+    finally:
+        telegram_router.settings.telegram.media_base_url = previous_base_url
+
+    assert response.status_code == 404
+
+
+def test_telegram_media_route_accepts_canonical_channel_after_username_change(
+    embed_server: ThreadingHTTPServer,
+) -> None:
+    previous_base_url = telegram_router.settings.telegram.media_base_url
+    telegram_router.settings.telegram.media_base_url = f"http://127.0.0.1:{embed_server.server_port}"
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/rss/telegram/media/legacy/126/0", follow_redirects=False)
+    finally:
+        telegram_router.settings.telegram.media_base_url = previous_base_url
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "https://cdn5.telesco.pe/file/photo.jpg"
+
+
+def test_telegram_media_route_rejects_canonical_message_id_mismatch(
+    embed_server: ThreadingHTTPServer,
+) -> None:
+    previous_base_url = telegram_router.settings.telegram.media_base_url
+    telegram_router.settings.telegram.media_base_url = f"http://127.0.0.1:{embed_server.server_port}"
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/rss/telegram/media/legacy/127/0", follow_redirects=False)
     finally:
         telegram_router.settings.telegram.media_base_url = previous_base_url
 

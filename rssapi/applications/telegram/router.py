@@ -87,7 +87,7 @@ async def fetch_feeds(channels: list[str], *, req: Request | None = None) -> lis
             for index, media in enumerate(media_items):
                 rendered_url = (
                     public_url(
-                        req, f"{settings.api_prefix}/rss/telegram/media/{message.channelName}/{message.msgid}/{index}"
+                        req, f"{settings.api_prefix}/rss/telegram/media/{message.username}/{message.msgid}/{index}"
                     )
                     if req is not None
                     else str(media.url)
