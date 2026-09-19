@@ -430,7 +430,9 @@ class TelegramToolkit:
                     raise RuntimeError(f"Telegram embed returned HTTP {response.status_code}")
                 document = Soup(response.text, "lxml")
                 widget = document.select_one("div.js-widget_message")
-                if widget is None or widget.get("data-post") != expected_post:
+                canonical_post = widget.get("data-post", "") if widget is not None else ""
+                canonical_channel, separator, canonical_message_id = canonical_post.partition("/")
+                if not canonical_channel or not separator or canonical_message_id != message_id:
                     raise LookupError(f"Telegram message not found: {expected_post}")
                 media = [
                     item.model_copy(update={"url": validated_url})
