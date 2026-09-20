@@ -611,7 +611,7 @@ def test_content_html_from_tweet_renders_images_before_videos() -> None:
     )
 
 
-def test_content_html_from_tweet_keeps_retweet_notice_before_media_and_folds_quoted_tweet() -> None:
+def test_content_html_from_tweet_keeps_quoted_media_at_the_top_and_folds_quoted_tweet() -> None:
     tweet = Tweet.model_validate(
         {
             "id": "1",
@@ -633,13 +633,34 @@ def test_content_html_from_tweet_keeps_retweet_notice_before_media_and_folds_quo
                 "id": "2",
                 "text": "quoted text",
                 "author": {"name": "quoted", "screenName": "quoted"},
+                "media": [
+                    {
+                        "type": "animated_gif",
+                        "url": "https://example.com/quoted.gif",
+                        "width": 320,
+                        "height": 180,
+                    },
+                    {
+                        "type": "video",
+                        "url": "https://example.com/quoted-video.mp4",
+                        "width": 640,
+                        "height": 360,
+                    },
+                ],
             },
         }
     )
 
+    assert tweet.quoted_tweet
+    assert [str(media.url) for media in tweet.quoted_tweet.media] == [
+        "https://example.com/quoted.gif",
+        "https://example.com/quoted-video.mp4",
+    ]
     assert content_html_from_tweet(tweet) == (
+        '<div><img src="https://example.com/photo.jpg" width="320" height="180" />'
+        '<img src="https://example.com/quoted.gif" width="320" height="180" />'
+        '<video src="https://example.com/quoted-video.mp4" width="640" height="360" controls preload="metadata"></video></div>'
         '<p>🔁 RT by <a href="https://x.com/SWuChunYi">@SWuChunYi</a></p>'
-        '<div><img src="https://example.com/photo.jpg" width="320" height="180" /></div>'
         "<details><summary>查看正文</summary><p>hello</p>"
         '<blockquote><p><a href="https://x.com/quoted"><b>quoted</b> @quoted</a></p><p>quoted text</p>'
         '<p><a href="https://x.com/quoted/status/2">Original</a></p></blockquote></details>'
@@ -691,8 +712,8 @@ def test_content_html_from_tweet_does_not_render_empty_details_for_media_only_re
     )
 
     assert content_html_from_tweet(tweet) == (
-        '<p>🔁 RT by <a href="https://x.com/SWuChunYi">@SWuChunYi</a></p>'
         '<div><video src="https://example.com/video.mp4" width="640" height="360" controls preload="metadata"></video></div>'
+        '<p>🔁 RT by <a href="https://x.com/SWuChunYi">@SWuChunYi</a></p>'
     )
 
 
