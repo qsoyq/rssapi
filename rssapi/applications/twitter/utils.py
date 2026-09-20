@@ -254,21 +254,27 @@ async def fetch_user_posts(screen_name: str, max_tweets: int, cookies: str) -> l
 
 
 def content_html_from_tweet(tweet: Tweet) -> str:
+    media_parts: list[str] = []
+    for media_source in (tweet, tweet.quoted_tweet):
+        if media_source is None:
+            continue
+        image_media = [media for media in media_source.media if media.type in {"photo", "animated_gif"}]
+        video_media = [media for media in media_source.media if media.type == "video"]
+        media_parts.extend(
+            f'<img src="{media.url}" width="{media.width}" height="{media.height}" />' for media in image_media
+        )
+        media_parts.extend(
+            f'<video src="{media.url}" width="{media.width}" height="{media.height}" controls preload="metadata"></video>'
+            for media in video_media
+        )
+
     content_parts: list[str] = []
+    if media_parts:
+        content_parts.append(f"<div>{''.join(media_parts)}</div>")
 
     if tweet.is_retweet and tweet.retweeted_by:
         rt_name = html.escape(tweet.retweeted_by)
         content_parts.append(f'<p>🔁 RT by <a href="https://x.com/{rt_name}">@{rt_name}</a></p>')
-
-    image_media = [media for media in tweet.media if media.type in {"photo", "animated_gif"}]
-    video_media = [media for media in tweet.media if media.type == "video"]
-    media_parts = [f'<img src="{media.url}" width="{media.width}" height="{media.height}" />' for media in image_media]
-    media_parts.extend(
-        f'<video src="{media.url}" width="{media.width}" height="{media.height}" controls preload="metadata"></video>'
-        for media in video_media
-    )
-    if media_parts:
-        content_parts.append(f"<div>{''.join(media_parts)}</div>")
 
     body_parts: list[str] = []
 
