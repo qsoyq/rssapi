@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -6,6 +7,7 @@ from typing import Any
 
 import httpx
 from asyncache import cached
+from bs4 import BeautifulSoup
 from fastapi import HTTPException, Request
 from pydantic import ValidationError
 
@@ -28,6 +30,119 @@ INSTAGRAM_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 )
+
+
+def _post_shortcode(post_id: str) -> str:
+    media_id = post_id.split("_", 1)[0]
+    if not media_id.isdigit():
+        return post_id
+    value = int(media_id)
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    code = ""
+    while value:
+        value, digit = divmod(value, 64)
+        code = alphabet[digit] + code
+    return code or "A"
+
+
+def _embedded_post(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        post = value.get("shortcode_media")
+        if isinstance(post, dict):
+            return post
+        context = value.get("contextJSON")
+        if isinstance(context, str):
+            try:
+                if post := _embedded_post(json.loads(context)):
+                    return post
+            except ValueError:
+                pass
+        for child in value.values():
+            if isinstance(child, (dict, list)) and (post := _embedded_post(child)):
+                return post
+    elif isinstance(value, list):
+        for child in value:
+            if post := _embedded_post(child):
+                return post
+    return None
+
+
+async def fetch_post_media(
+    post_id: str,
+    *,
+    base_url: str | None = None,
+    cookies: str | None = None,
+    timeout: float = 20.0,
+) -> dict[str, Any]:
+    shortcode = _post_shortcode(post_id)
+    effective_base_url = base_url or INSTAGRAM_API_BASE_URL
+    proxy = None
+    if not effective_base_url.startswith("http://"):
+        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    try:
+        async with httpx.AsyncClient(
+            base_url=effective_base_url,
+            follow_redirects=False,
+            timeout=timeout,
+            trust_env=False,
+            proxy=proxy,
+            verify=False,
+        ) as client:
+            # Browser user agents receive the login shell instead of the public embed payload.
+            headers = {"User-Agent": "curl/8.7.1", "Accept": "*/*"}
+            if cookies:
+                headers["Cookie"] = cookies
+            response = await client.get(f"/p/{shortcode}/embed/captioned/", headers=headers)
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=504, detail="Instagram upstream request timed out") from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail="Failed to request Instagram upstream") from exc
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail=f"Instagram post not found: {post_id}")
+    if response.status_code in (301, 302, 303, 307, 308, 401):
+        raise _authentication_required()
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=response.status_code if response.status_code == 429 else 502,
+            detail=f"Instagram upstream returned HTTP {response.status_code}",
+        )
+    soup = BeautifulSoup(response.text, "html.parser")
+    for script in soup.find_all("script"):
+        source = script.get_text()
+        if script.get("type") != "application/json":
+            # ServerJS wraps a JSON object in JavaScript; decode only the object, never execute it.
+            marker = "s.handle("
+            if marker not in source:
+                continue
+            source = source.split(marker, 1)[1]
+        try:
+            payload, _ = json.JSONDecoder().raw_decode(source.lstrip())
+            post = _embedded_post(payload)
+        except ValueError:
+            continue
+        if post is None or post.get("shortcode") != shortcode:
+            continue
+        if post_id.split("_", 1)[0].isdigit() and str(post.get("id")) != post_id.split("_", 1)[0]:
+            raise HTTPException(status_code=502, detail="Instagram upstream returned a different post")
+        edges = post.get("edge_sidecar_to_children", {}).get("edges", [])
+        children = [edge["node"] for edge in edges if isinstance(edge, dict) and isinstance(edge.get("node"), dict)]
+        media_items = children or [post]
+        return {
+            "carousel_media": [
+                {
+                    "media_type": 2 if child.get("is_video") else 1,
+                    "display_uri": child.get("display_url"),
+                    "video_versions": [{"url": child.get("video_url")}],
+                }
+                for child in media_items
+            ]
+        }
+    raise HTTPException(status_code=502, detail="Instagram upstream page is missing post media")
+
+
+@cached(RandomTTLCache(256, 60))
+async def fetch_post_media_by_cache(post_id: str) -> dict[str, Any]:
+    return await fetch_post_media(post_id)
 
 
 def _instagram_headers(cookies: str | None = None) -> dict[str, str]:

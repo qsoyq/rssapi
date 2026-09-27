@@ -16,6 +16,17 @@ from rssapi.core.middlewares import rss as rss_middleware
 from rssapi.main import app
 
 
+def test_media_id_converts_to_shortcode() -> None:
+    assert instagram_utils._post_shortcode("3994015216743585234_59186798522") == "Ddtl62tgZXS"
+    assert instagram_utils._post_shortcode("3994015216743585234") == "Ddtl62tgZXS"
+
+
+def test_embedded_post_decodes_serverjs_context() -> None:
+    post = {"shortcode": "Ddtl62tgZXS", "id": "3994015216743585234"}
+    context = json.dumps({"gql_data": {"shortcode_media": post}})
+    assert instagram_utils._embedded_post({"require": [["init", [{"contextJSON": context}]]]}) == post
+
+
 def _user(username: str = "he.le_nn", *, is_private: bool = False) -> dict[str, Any]:
     return {
         "id": "1589007020",
@@ -68,6 +79,46 @@ class LocalInstagramUpstream:
             def do_GET(self) -> None:
                 parsed = urlparse(self.path)
                 parts = parsed.path.strip("/").split("/")
+                if len(parts) == 4 and parts[0] == "p" and parts[2:] == ["embed", "captioned"]:
+                    shortcode = parts[1]
+                    controller.requests.append({"path": parsed.path})
+                    for _, body, _ in controller.responses.values():
+                        if not isinstance(body, dict):
+                            continue
+                        for post in body.get("items", []):
+                            if post.get("id") != shortcode and post.get("code") != shortcode:
+                                continue
+                            children = post.get("carousel_media") or [post]
+                            nodes = [
+                                {
+                                    "node": {
+                                        "is_video": child.get("media_type") == 2,
+                                        "display_url": child.get("image_versions2", {})
+                                        .get("candidates", [{}])[0]
+                                        .get("url"),
+                                        "video_url": child.get("video_versions", [{}])[0].get("url"),
+                                    }
+                                }
+                                for child in children
+                            ]
+                            embedded = {
+                                "gql_data": {
+                                    "shortcode_media": {
+                                        "id": str(post.get("id", "")).split("_", 1)[0],
+                                        "shortcode": shortcode,
+                                        "edge_sidecar_to_children": {"edges": nodes},
+                                    }
+                                }
+                            }
+                            serverjs = {"require": [["init", [{"contextJSON": json.dumps(embedded)}]]]}
+                            payload = f"<script>s.handle({json.dumps(serverjs)});</script>".encode()
+                            self.send_response(200)
+                            self.send_header("Content-Length", str(len(payload)))
+                            self.end_headers()
+                            self.wfile.write(payload)
+                            return
+                    self.send_error(404)
+                    return
                 username = parts[4] if len(parts) >= 6 else ""
                 query = parse_qs(parsed.query)
                 cursor = query.get("max_id", [None])[0]
@@ -138,6 +189,23 @@ def instagram_upstream() -> Iterator[LocalInstagramUpstream]:
         yield upstream
     finally:
         upstream.close()
+
+
+@pytest.mark.asyncio
+async def test_single_post_media_fetches_all_images_without_profile_feed(
+    instagram_upstream: LocalInstagramUpstream,
+) -> None:
+    post = _image_post(1)
+    post["id"] = "3994015216743585234_59186798522"
+    post["code"] = "Ddtl62tgZXS"
+    post["carousel_media"] = [_image_post(index) for index in range(12)]
+    instagram_upstream.add("he.le_nn", None, _payload("he.le_nn", [post]))
+
+    media = await instagram_utils.fetch_post_media(post["id"], base_url=instagram_upstream.base_url)
+
+    assert len(media["carousel_media"]) == 12
+    assert instagram_utils._image_url(media["carousel_media"][11]) == "https://cdn.example/image-11.jpg?x=1&y=2"
+    assert instagram_upstream.requests == [{"path": "/p/Ddtl62tgZXS/embed/captioned/"}]
 
 
 def test_post_to_jsonfeed_item_renders_image_caption_metrics_and_location() -> None:
@@ -449,6 +517,7 @@ def test_instagram_media_redirects_to_refreshed_media_url(
     assert response.status_code == 302
     assert response.headers["location"] == "https://cdn.example/image-1.jpg?x=1&y=2"
     assert response.headers["cache-control"] == "no-store"
+    assert instagram_upstream.requests == [{"path": "/p/post-1/embed/captioned/"}]
 
 
 def test_instagram_media_redirects_carousel_video_and_rejects_missing_index(

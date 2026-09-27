@@ -7,6 +7,8 @@ from rssapi.applications.instagram.utils import (
     INSTAGRAM_PROFILE_BASE_URL,
     _image_url,
     _video_url,
+    fetch_post_media,
+    fetch_post_media_by_cache,
     fetch_user_feed_data,
     fetch_user_feed_data_by_cache,
     post_to_jsonfeed_item,
@@ -30,23 +32,15 @@ async def media(
     username: str = Path(..., min_length=1, max_length=30, pattern=r"^[A-Za-z0-9._]+$"),
     post_id: str = Path(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"),
     index: int = Path(..., ge=0),
-    max_posts: int = Query(12, ge=1, le=50),
     cookies: str | None = Query(None, max_length=32768),
     x_instagram_cookie: str | None = Header(None, alias="X-Instagram-Cookie", max_length=32768),
 ) -> RedirectResponse:
     effective_cookies = cookies if cookies is not None else x_instagram_cookie
-    normalized_username = username.lower()
-    _, posts_data = await fetch_user_feed_data(
-        normalized_username,
-        max_posts,
-        cookies=effective_cookies,
+    post = (
+        await fetch_post_media(post_id, cookies=effective_cookies)
+        if effective_cookies
+        else await fetch_post_media_by_cache(post_id)
     )
-    post = next(
-        (item for item in posts_data if str(item.get("id") or item.get("pk") or item.get("code") or "") == post_id),
-        None,
-    )
-    if post is None:
-        raise HTTPException(status_code=404, detail=f"Instagram post not found: {post_id}")
     media_items = post.get("carousel_media")
     media_list = media_items if isinstance(media_items, list) and media_items else [post]
     if index >= len(media_list) or not isinstance(media_list[index], dict):
