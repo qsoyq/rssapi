@@ -2,6 +2,7 @@ import importlib.metadata
 import time
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from rssapi.utils.basic import get_date_string_for_shanghai
@@ -199,6 +200,9 @@ class DouyinSettings(BaseSettings):
     )
     user_feeds_cache_ttl: int = 1800
     user_feeds_cache_maxsize: int = 4096
+    topic_feeds_cache_ttl: int = Field(default=1800, ge=1)
+    topic_feeds_cache_maxsize: int = Field(default=4096, ge=1)
+    topic_fetch_concurrency: int = Field(default=1, ge=1)
 
 
 class BilibiliSettings(BaseSettings):
