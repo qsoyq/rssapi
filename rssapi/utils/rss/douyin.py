@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import pytz
 
+from rssapi.applications.douyin.utils import playwright_cookies
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedItem
 from rssapi.core.settings import AppSettings
 from rssapi.utils.basic import ShelveStorage, URLToolkit  # type: ignore
@@ -52,6 +53,9 @@ class AccessHistory:
 
 class DouyinPlaywright(AsyncPlaywright):
     WATCH_URL_PATH = "/web/aweme/post"
+
+    def cookies_by_str(self, cookie: str, url: str) -> list[dict[str, str]]:
+        return playwright_cookies(cookie, url)
 
 
 def _extract_video_url(post: dict) -> str | None:

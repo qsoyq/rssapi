@@ -226,6 +226,31 @@ Each data source can configure cache size (`*_MAXSIZE`, max entries) and expiry 
 | --- | --- | --- |
 | `RSS_DOUYIN_USER_FEEDS_CACHE_TTL` | `1800` | 用户作品列表缓存 TTL |
 | `RSS_DOUYIN_USER_FEEDS_CACHE_MAXSIZE` | `4096` | 用户作品列表缓存条目数 |
+| `RSS_DOUYIN_TOPIC_FEEDS_CACHE_TTL` | `1800` | 话题作品缓存 TTL 基准值，实际随机 30–60 分钟 |
+| `RSS_DOUYIN_TOPIC_FEEDS_CACHE_MAXSIZE` | `4096` | 话题作品缓存条目数，按 Cookie 和作品上限区分 |
+| `RSS_DOUYIN_TOPIC_FETCH_CONCURRENCY` | `1` | 话题抓取并发上限，同时遵守全局 Playwright 容量限制 |
+
+抖音用户作品和话题订阅支持 query 参数 `cookies` 或请求头 `X-Douyin-Cookie`，同时传入时请求头优先。
+Cookie 使用完整字符串，最小已验证形式为 `sessionid_ss=<会话值>`。请求示例：
+
+```bash
+curl 'http://localhost:8000/api/rss/douyin/user/<用户主页ID>' \
+  -H "X-Douyin-Cookie: $DOUYIN_COOKIE"
+curl 'http://localhost:8000/api/rss/douyin/topic/示例话题?max_posts=30' \
+  -H "X-Douyin-Cookie: $DOUYIN_COOKIE"
+```
+
+话题名可带 `#`，在 URL 路径中需要编码为 `%23`。仅保留明确带该话题的作品，按最新发布时间排列；
+每页抓取 15 个搜索结果，最多三页，`max_posts` 默认 30、范围 1–45，过滤后可能不足该数量。
+`timeout` 默认 60 秒，包括排队、浏览器初始化与分页；`use_cache=false` 可跳过 Feed 缓存。
+返回格式为 JSON Feed。
+
+旧地址 `/api/rss/douyin/user/<用户主页ID>/<sessionid_ss>` 保持兼容，始终使用路径凭据，query/header
+不覆盖其 session ID。旧响应、条目 ID 和自动抓取历史保持原样；新入口的 `feed_url` 移除 `cookies`。
+
+话题接口使用无头浏览器初始化登录态，再通过 HTTPX 直接请求搜索 API，无需操作搜索页。
+初始化和搜索受限时返回 `503`，上游空响应或异常返回 `502`，超时返回 `504`，不会把验证失败缓存为空 Feed。
+该路径依赖当前抖音请求校验策略（包括 `uifid` 与 `x-tt-argus`），策略变更时需更新适配。
 
 ### Playwright 容量配置
 
