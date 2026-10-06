@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import secrets
 from datetime import datetime, timezone
 from html import escape
 from typing import Any
@@ -127,7 +128,7 @@ async def fetch_post_media(
         edges = post.get("edge_sidecar_to_children", {}).get("edges", [])
         children = [edge["node"] for edge in edges if isinstance(edge, dict) and isinstance(edge.get("node"), dict)]
         media_items = children or [post]
-        return {
+        media = {
             "carousel_media": [
                 {
                     "media_type": 2 if child.get("is_video") else 1,
@@ -137,7 +138,93 @@ async def fetch_post_media(
                 for child in media_items
             ]
         }
+        if any(child["media_type"] == 2 and not _video_url(child) for child in media["carousel_media"]):
+            return await fetch_graphql_post_media(
+                post_id, base_url=effective_base_url, cookies=cookies, timeout=timeout
+            )
+        return media
     raise HTTPException(status_code=502, detail="Instagram upstream page is missing post media")
+
+
+async def fetch_graphql_post_media(
+    post_id: str,
+    *,
+    base_url: str | None = None,
+    cookies: str | None = None,
+    timeout: float = 20.0,
+) -> dict[str, Any]:
+    # Query and doc_id source: https://github.com/shamu4life/mbedfx/blob/main/src/platforms/instagram/fetch.ts
+    # Verified cookie-free with DeG_Vlzp2O7 on 2026-10-06. Query IDs may rotate independently of CDN URLs.
+    shortcode = _post_shortcode(post_id)
+    lsd = secrets.token_hex(12)
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "X-FB-Friendly-Name": "PolarisPostRootQuery",
+        "X-FB-LSD": lsd,
+    }
+    if cookies:
+        headers["Cookie"] = cookies
+    effective_base_url = base_url or INSTAGRAM_API_BASE_URL
+    proxy = None
+    if not effective_base_url.startswith("http://"):
+        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    try:
+        async with httpx.AsyncClient(
+            base_url=effective_base_url,
+            follow_redirects=False,
+            timeout=timeout,
+            trust_env=False,
+            proxy=proxy,
+            verify=False,
+        ) as client:
+            response = await client.post(
+                "/graphql/query/",
+                headers=headers,
+                data={
+                    "doc_id": settings.instagram.graphql_doc_id,
+                    "lsd": lsd,
+                    "server_timestamps": "true",
+                    "variables": json.dumps(
+                        {
+                            "shortcode": shortcode,
+                            "__relay_internal__pv__PolarisAIGMMediaWebLabelEnabledrelayprovider": False,
+                        }
+                    ),
+                },
+            )
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=504, detail="Instagram upstream request timed out") from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail="Failed to request Instagram upstream") from exc
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail=f"Instagram post not found: {post_id}")
+    if response.status_code in (301, 302, 303, 307, 308, 401):
+        raise _authentication_required()
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=response.status_code if response.status_code == 429 else 502,
+            detail=f"Instagram upstream returned HTTP {response.status_code}",
+        )
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="Instagram upstream returned invalid JSON") from exc
+    if not isinstance(payload, dict) or payload.get("errors"):
+        raise HTTPException(status_code=502, detail="Instagram GraphQL query failed")
+    data = payload.get("data")
+    root = data.get("xdt_api__v1__media__shortcode__web_info") if isinstance(data, dict) else None
+    items = root.get("items") if isinstance(root, dict) else None
+    if not isinstance(items, list) or len(items) != 1 or not isinstance(items[0], dict):
+        raise HTTPException(status_code=502, detail="Instagram upstream payload is missing post media")
+    post = items[0]
+    expected_id = post_id.split("_", 1)[0]
+    actual_id = str(post.get("id") or post.get("pk") or "").split("_", 1)[0]
+    if post.get("code") != shortcode or (expected_id.isdigit() and actual_id != expected_id):
+        raise HTTPException(status_code=502, detail="Instagram upstream returned a different post")
+    media_items = _post_media(post)
+    if any(not isinstance(child, dict) for child in media_items):
+        raise HTTPException(status_code=502, detail="Instagram upstream returned invalid post media")
+    return {"carousel_media": media_items}
 
 
 @cached(RandomTTLCache(256, 60))

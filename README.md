@@ -268,12 +268,17 @@ curl 'http://localhost:8000/api/rss/douyin/topic/示例话题?max_posts=30' \
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `RSS_INSTAGRAM_APP_ID` | `936619743392459` | Instagram 公开 Web App ID |
+| `RSS_INSTAGRAM_GRAPHQL_DOC_ID` | `27128499623469141` | embed 缺失视频地址时，按 shortcode 查询单帖的 GraphQL 查询标识 |
 | `RSS_INSTAGRAM_USER_POSTS_CACHE_TTL` | `10800` | 用户贴文列表缓存 TTL（随机 3–6 小时） |
 | `RSS_INSTAGRAM_USER_POSTS_CACHE_MAXSIZE` | `4096` | 用户贴文列表缓存条目数 |
 
 > 注：缓存配置在进程启动时读取，修改环境变量后需要重启服务才能生效。
 
-Instagram、Telegram 和 Bilibili 的媒体字段使用稳定的 RSSAPI 地址；访问媒体地址时会重新解析上游资源并返回 `302`，响应带 `Cache-Control: no-store`。这些地址不会缓存上游短期签名，私有账号仍需在请求头中提供对应 Cookie。
+Instagram、Telegram 和 Bilibili 的媒体字段使用稳定的 RSSAPI 地址；访问媒体地址时会重新解析上游资源并返回 `302`，响应带 `Cache-Control: no-store`。订阅内容只保存稳定媒体入口，不保存短期 CDN 签名地址；私有账号仍需在请求头中提供对应 Cookie。
+
+Instagram 媒体路由优先解析单帖 embed。部分视频的 embed 因版权限制返回 `copyright_blocked: true` 并省略 `video_url`；视频地址缺失或无效时，服务会通过 `PolarisPostRootQuery` 按 shortcode 精确查询单帖，读取 `video_versions`，不查询或遍历用户 feed。匿名媒体解析结果沿用基准 TTL 为 60 秒的随机缓存（实际 60–120 秒）；带 Cookie 的请求不使用公共缓存。
+
+`doc_id` 及查询方式参考 [mbedfx 的 Instagram 实现](https://github.com/shamu4life/mbedfx/blob/main/src/platforms/instagram/fetch.ts)，已于 2026-10-06 用帖子 `DeG_Vlzp2O7` 验证单帖查询及 MP4 CDN 可用。该值是 Instagram 内部 GraphQL 查询标识，不是帖子 ID 或 CDN 签名；上游更新可能使其失效，此时可通过 `RSS_INSTAGRAM_GRAPHQL_DOC_ID` 更新并重启服务。
 
 #### 微博 (`RSS_WEIBO_`)
 
