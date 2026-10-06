@@ -234,6 +234,9 @@ class InstagramSettings(BaseSettings):
         extra="ignore",
     )
     app_id: str = "936619743392459"
+    # Source: https://github.com/shamu4life/mbedfx/blob/main/src/platforms/instagram/fetch.ts
+    # Verified with DeG_Vlzp2O7 on 2026-10-06; override when Instagram rotates this query ID.
+    graphql_doc_id: str = "27128499623469141"
     user_posts_cache_ttl: int = 10800
     user_posts_cache_maxsize: int = 4096
 

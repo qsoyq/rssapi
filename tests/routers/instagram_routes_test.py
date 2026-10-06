@@ -73,6 +73,8 @@ class LocalInstagramUpstream:
     def __init__(self) -> None:
         self.responses: dict[tuple[str, str | None], tuple[int, Any, float]] = {}
         self.requests: list[dict[str, Any]] = []
+        self.omit_embed_video_urls = False
+        self.graphql_responses: dict[str, tuple[int, Any, float]] = {}
         controller = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -101,6 +103,9 @@ class LocalInstagramUpstream:
                                 }
                                 for child in children
                             ]
+                            if controller.omit_embed_video_urls:
+                                for edge in nodes:
+                                    edge["node"].pop("video_url", None)
                             embedded = {
                                 "gql_data": {
                                     "shortcode_media": {
@@ -139,6 +144,34 @@ class LocalInstagramUpstream:
                     time.sleep(delay)
                 payload = json.dumps(body).encode() if isinstance(body, dict) else str(body).encode()
                 self.send_response(status_code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                try:
+                    self.wfile.write(payload)
+                except BrokenPipeError:
+                    pass
+
+            def do_POST(self) -> None:
+                body = self.rfile.read(int(self.headers.get("Content-Length", "0"))).decode()
+                form = parse_qs(body)
+                variables = json.loads(form["variables"][0])
+                controller.requests.append(
+                    {
+                        "path": self.path,
+                        "variables": variables,
+                        "doc_id": form["doc_id"][0],
+                        "lsd": form["lsd"][0],
+                        "lsd_header": self.headers.get("X-FB-LSD"),
+                        "friendly_name": self.headers.get("X-FB-Friendly-Name"),
+                        "cookie": self.headers.get("Cookie"),
+                    }
+                )
+                status, response, delay = controller.graphql_responses.get(variables["shortcode"], (404, {}, 0.0))
+                if delay:
+                    time.sleep(delay)
+                payload = json.dumps(response).encode() if isinstance(response, dict) else str(response).encode()
+                self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
@@ -189,6 +222,134 @@ def instagram_upstream() -> Iterator[LocalInstagramUpstream]:
         yield upstream
     finally:
         upstream.close()
+
+
+@pytest.fixture
+def graphql_media_upstream(instagram_upstream: LocalInstagramUpstream) -> Iterator[LocalInstagramUpstream]:
+    original_url = instagram_utils.INSTAGRAM_API_BASE_URL
+    original_doc_id = instagram_utils.settings.instagram.graphql_doc_id
+    instagram_utils.INSTAGRAM_API_BASE_URL = instagram_upstream.base_url
+    instagram_utils.settings.instagram.graphql_doc_id = "123456789012345"
+    instagram_upstream.omit_embed_video_urls = True
+    try:
+        yield instagram_upstream
+    finally:
+        instagram_utils.INSTAGRAM_API_BASE_URL = original_url
+        instagram_utils.settings.instagram.graphql_doc_id = original_doc_id
+
+
+def _graphql_payload(post: dict[str, Any]) -> dict[str, Any]:
+    return {"data": {"xdt_api__v1__media__shortcode__web_info": {"items": [post]}}}
+
+
+def _blocked_video_post() -> dict[str, Any]:
+    post = _image_post(1, "akaonikou")
+    post.update(
+        id="4001163879599530939_1608224816",
+        code="DeG_Vlzp2O7",
+        media_type=2,
+        video_versions=[{"url": "https://cdn.example/recovered.mp4?signature=fresh"}],
+    )
+    return post
+
+
+def test_blocked_video_redirects_via_single_post_graphql(graphql_media_upstream: LocalInstagramUpstream) -> None:
+    post = _blocked_video_post()
+    graphql_media_upstream.add("akaonikou", None, _payload("akaonikou", [post]))
+    graphql_media_upstream.graphql_responses[post["code"]] = (200, _graphql_payload(post), 0)
+    with TestClient(app) as client:
+        response = client.get(
+            f"/api/rss/instagram/media/akaonikou/{post['id']}/0",
+            headers={"X-Instagram-Cookie": "sessionid=test-session"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        assert response.headers["location"] == post["video_versions"][0]["url"]
+        assert response.headers["cache-control"] == "no-store"
+        # Cookie requests must resolve again rather than reuse the public media cache.
+        assert (
+            client.get(
+                f"/api/rss/instagram/media/akaonikou/{post['id']}/0",
+                headers={"X-Instagram-Cookie": "sessionid=test-session"},
+                follow_redirects=False,
+            ).status_code
+            == 302
+        )
+    assert len(graphql_media_upstream.requests) == 4
+    assert graphql_media_upstream.requests[0] == {"path": "/p/DeG_Vlzp2O7/embed/captioned/"}
+    request = graphql_media_upstream.requests[1]
+    assert request["path"] == "/graphql/query/"
+    assert request["variables"]["shortcode"] == post["code"]
+    assert request["doc_id"] == "123456789012345"
+    assert request["lsd"] == request["lsd_header"]
+    assert request["friendly_name"] == "PolarisPostRootQuery"
+    assert request["cookie"] == "sessionid=test-session"
+    assert all("username" not in request for request in graphql_media_upstream.requests)
+
+
+@pytest.mark.asyncio
+async def test_graphql_recovery_preserves_carousel_order(graphql_media_upstream: LocalInstagramUpstream) -> None:
+    post = _blocked_video_post()
+    post["media_type"] = 8
+    post["carousel_media"] = [_image_post(2), _blocked_video_post(), _image_post(3)]
+    graphql_media_upstream.add("akaonikou", None, _payload("akaonikou", [post]))
+    graphql_media_upstream.graphql_responses[post["code"]] = (200, _graphql_payload(post), 0)
+    media = await instagram_utils.fetch_post_media(post["id"])
+    assert [child["media_type"] for child in media["carousel_media"]] == [1, 2, 1]
+    assert (
+        instagram_utils._video_url(media["carousel_media"][1]) == post["carousel_media"][1]["video_versions"][0]["url"]
+    )
+    assert instagram_utils._image_url(media["carousel_media"][2]) == "https://cdn.example/image-3.jpg?x=1&y=2"
+    assert len(graphql_media_upstream.requests) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,value", [("id", "123_1608224816"), ("code", "WrongCode")])
+async def test_graphql_rejects_different_post(
+    graphql_media_upstream: LocalInstagramUpstream, field: str, value: str
+) -> None:
+    post = _blocked_video_post()
+    requested_id, requested_code = post["id"], post["code"]
+    post[field] = value
+    graphql_media_upstream.graphql_responses[requested_code] = (200, _graphql_payload(post), 0)
+    with pytest.raises(HTTPException) as exc:
+        await instagram_utils.fetch_graphql_post_media(requested_id)
+    assert exc.value.status_code == 502
+    assert "different post" in exc.value.detail
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,body,expected",
+    [
+        (200, {"errors": [{"message": "query unavailable"}]}, 502),
+        (200, {"data": None}, 502),
+        (200, {"data": {"xdt_api__v1__media__shortcode__web_info": {"items": []}}}, 502),
+        (200, "<html>login</html>", 502),
+        (302, {}, 401),
+        (401, {}, 401),
+        (404, {}, 404),
+        (429, {}, 429),
+        (500, {}, 502),
+    ],
+)
+async def test_graphql_errors_do_not_redirect(
+    graphql_media_upstream: LocalInstagramUpstream, status: int, body: Any, expected: int
+) -> None:
+    post = _blocked_video_post()
+    graphql_media_upstream.graphql_responses[post["code"]] = (status, body, 0)
+    with pytest.raises(HTTPException) as exc:
+        await instagram_utils.fetch_graphql_post_media(post["id"])
+    assert exc.value.status_code == expected
+
+
+@pytest.mark.asyncio
+async def test_graphql_timeout_maps_to_gateway_timeout(graphql_media_upstream: LocalInstagramUpstream) -> None:
+    post = _blocked_video_post()
+    graphql_media_upstream.graphql_responses[post["code"]] = (200, _graphql_payload(post), 0.2)
+    with pytest.raises(HTTPException) as exc:
+        await instagram_utils.fetch_graphql_post_media(post["id"], timeout=0.05)
+    assert exc.value.status_code == 504
 
 
 @pytest.mark.asyncio
