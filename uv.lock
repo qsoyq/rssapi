@@ -2683,7 +2683,7 @@ wheels = [
 
 [[package]]
 name = "rssapi"
-version = "0.5.21"
+version = "0.5.22"
 source = { editable = "." }
 dependencies = [
     { name = "asyncache" },
