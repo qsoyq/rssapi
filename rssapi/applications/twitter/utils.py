@@ -4,7 +4,7 @@ import html
 import logging
 import re
 import urllib.parse
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict
 from functools import lru_cache, wraps
 from typing import Any, Iterator
@@ -139,7 +139,7 @@ def _build_twitter_client(
     auth_token: str | None = None,
     ct0: str | None = None,
     cookie_string: str | None = None,
-) -> TwitterClient:
+) -> "MyTwitterClient":
     rate_limit_config = load_config().get("rateLimit")
     if auth_token and ct0:
         return MyTwitterClient(auth_token, ct0, rate_limit_config, cookie_string=cookie_string)
@@ -156,8 +156,45 @@ def _build_twitter_client(
     )
 
 
-def _to_rssapi_tweets(tweets: list[Any]) -> list[Tweet]:
-    return [Tweet.model_validate(asdict(tweet)) for tweet in tweets]
+def _video_posters_from_response(response: Any) -> dict[str, str]:
+    """Keep video thumbnails that twitter-cli 0.8.4 drops during parsing."""
+    posters: dict[str, str] = {}
+    pending = [response]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, list):
+            pending.extend(node)
+        elif isinstance(node, dict):
+            pending.extend(node.values())
+            if node.get("type") != "video":
+                continue
+            poster = node.get("media_url_https")
+            video_info = node.get("video_info")
+            if not isinstance(poster, str) or not poster.strip() or not isinstance(video_info, dict):
+                continue
+            variants = video_info.get("variants")
+            if not isinstance(variants, list):
+                continue
+            for variant in variants:
+                if not isinstance(variant, dict) or variant.get("content_type") != "video/mp4":
+                    continue
+                url = variant.get("url")
+                if isinstance(url, str) and url:
+                    posters[url] = poster.strip()
+    return posters
+
+
+def _to_rssapi_tweets(tweets: list[Any], video_posters: Mapping[str, str] | None = None) -> list[Tweet]:
+    converted = [Tweet.model_validate(asdict(tweet)) for tweet in tweets]
+    if video_posters:
+        for tweet in converted:
+            for media_source in (tweet, tweet.quoted_tweet):
+                if media_source is None:
+                    continue
+                for media in media_source.media:
+                    if media.type == "video" and not media.poster_url:
+                        media.poster_url = video_posters.get(media.url)
+    return converted
 
 
 def _fetch_feed_sync(max_tweets: int, cookies: str, feed_type: str) -> list[Tweet]:
@@ -172,7 +209,7 @@ def _fetch_feed_sync(max_tweets: int, cookies: str, feed_type: str) -> list[Twee
         tweets = client.fetch_following_feed(max_tweets)
     else:
         tweets = client.fetch_home_timeline(max_tweets)
-    return _to_rssapi_tweets(tweets)
+    return _to_rssapi_tweets(tweets, client.video_posters)
 
 
 @async_semaphore(_twitter_fetch_semaphore)
@@ -236,7 +273,7 @@ def _fetch_user_posts_sync(screen_name: str, max_tweets: int, cookies: str) -> l
         return browser_tweets
 
     normalized_screen_name = screen_name.casefold()
-    rssapi_tweets = _to_rssapi_tweets(tweets)
+    rssapi_tweets = _to_rssapi_tweets(tweets, client.video_posters)
     return [
         tweet
         for tweet in rssapi_tweets
@@ -263,10 +300,12 @@ def content_html_from_tweet(tweet: Tweet) -> str:
         media_parts.extend(
             f'<img src="{media.url}" width="{media.width}" height="{media.height}" />' for media in image_media
         )
-        media_parts.extend(
-            f'<video src="{media.url}" width="{media.width}" height="{media.height}" controls preload="metadata"></video>'
-            for media in video_media
-        )
+        for media in video_media:
+            poster = f' poster="{html.escape(media.poster_url, quote=True)}"' if media.poster_url else ""
+            media_parts.append(
+                f'<video src="{media.url}" width="{media.width}" height="{media.height}"'
+                f'{poster} controls preload="metadata"></video>'
+            )
 
     content_parts: list[str] = []
     if media_parts:
@@ -352,6 +391,16 @@ def new_get_instructions(
 
 
 class MyTwitterClient(TwitterClient):
+    def __init__(
+        self,
+        auth_token: str,
+        ct0: str,
+        rate_limit_config: dict[str, Any] | None = None,
+        cookie_string: str | None = None,
+    ) -> None:
+        self.video_posters: dict[str, str] = {}
+        super().__init__(auth_token, ct0, rate_limit_config, cookie_string=cookie_string)
+
     def _ensure_client_transaction(self) -> None:
         """Disable twitter-cli's eager ClientTransaction bootstrap.
 
@@ -405,4 +454,6 @@ class MyTwitterClient(TwitterClient):
         )
 
     def _api_request(self, url, method="GET", body=None):
-        return super()._api_request(url, method, body)
+        response = super()._api_request(url, method, body)
+        self.video_posters.update(_video_posters_from_response(response))
+        return response

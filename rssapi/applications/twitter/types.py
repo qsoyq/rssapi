@@ -28,6 +28,7 @@ class TweetMedia(BaseModel):
     url: str
     width: Optional[int] = None
     height: Optional[int] = None
+    poster_url: str | None = None
 
 
 class QuotedTweet(BaseModel):
