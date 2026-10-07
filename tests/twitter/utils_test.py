@@ -1,7 +1,5 @@
 import importlib
 import logging
-import sys
-import types
 from types import SimpleNamespace
 from typing import Any, TypedDict, cast
 
@@ -13,51 +11,6 @@ get_ondemand_file_url = cast(
     Any,
     importlib.import_module("x_client_transaction.utils").get_ondemand_file_url,
 )
-
-twitter_cli_module = cast(Any, sys.modules.setdefault("twitter_cli", types.ModuleType("twitter_cli")))
-twitter_auth_module = cast(Any, sys.modules.setdefault("twitter_cli.auth", types.ModuleType("twitter_cli.auth")))
-twitter_client_module = cast(Any, sys.modules.setdefault("twitter_cli.client", types.ModuleType("twitter_cli.client")))
-twitter_config_module = cast(Any, sys.modules.setdefault("twitter_cli.config", types.ModuleType("twitter_cli.config")))
-twitter_models_module = cast(Any, sys.modules.setdefault("twitter_cli.models", types.ModuleType("twitter_cli.models")))
-twitter_exceptions_module = cast(
-    Any, sys.modules.setdefault("twitter_cli.exceptions", types.ModuleType("twitter_cli.exceptions"))
-)
-
-if not hasattr(twitter_auth_module, "extract_from_browser"):
-    twitter_auth_module.extract_from_browser = lambda: None
-if not hasattr(twitter_auth_module, "get_cookies"):
-    twitter_auth_module.get_cookies = lambda: {}
-if not hasattr(twitter_client_module, "TwitterClient"):
-
-    class _StubTwitterClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    twitter_client_module.TwitterClient = _StubTwitterClient
-if not hasattr(twitter_config_module, "load_config"):
-    twitter_config_module.load_config = lambda: {}
-if not hasattr(twitter_models_module, "UserProfile"):
-
-    class _StubUserProfile:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    twitter_models_module.UserProfile = _StubUserProfile
-
-if not hasattr(twitter_exceptions_module, "TwitterAPIError"):
-
-    class _StubTwitterAPIError(Exception):
-        def __init__(self, status_code=0, message=""):
-            self.status_code = status_code
-            self.message = message
-
-    twitter_exceptions_module.TwitterAPIError = _StubTwitterAPIError
-
-twitter_cli_module.auth = twitter_auth_module
-twitter_cli_module.client = twitter_client_module
-twitter_cli_module.config = twitter_config_module
-twitter_cli_module.models = twitter_models_module
-twitter_cli_module.exceptions = twitter_exceptions_module
 
 from rssapi.applications.twitter import patch as twitter_patch  # noqa: E402
 from rssapi.applications.twitter import utils as twitter_utils  # noqa: E402
@@ -288,6 +241,8 @@ def test_fetch_feed_sync_uses_expected_client_method(
     captured: dict[str, object] = {}
 
     class FakeClient:
+        video_posters: dict[str, str] = {}
+
         def fetch_following_feed(self, max_tweets: int) -> list[str]:
             captured["called"] = ("following", max_tweets)
             return ["following-feed"]
@@ -310,7 +265,7 @@ def test_fetch_feed_sync_uses_expected_client_method(
             or FakeClient()
         ),
     )
-    monkeypatch.setattr(twitter_utils, "_to_rssapi_tweets", lambda tweets: tweets)
+    monkeypatch.setattr(twitter_utils, "_to_rssapi_tweets", lambda tweets, video_posters: tweets)
 
     tweets = twitter_utils._fetch_feed_sync(20, "auth_token=token; ct0=csrf", feed_type)
 
@@ -340,6 +295,7 @@ def test_fetch_user_posts_sync_filters_by_screen_name_and_keeps_retweets(monkeyp
     class FakeClient:
         def __init__(self, cookie_string: str | None):
             self.cookie_string = cookie_string
+            self.video_posters: dict[str, str] = {}
 
         def fetch_user(self, screen_name: str) -> SimpleNamespace:
             return SimpleNamespace(id=f"user-{screen_name}")
@@ -355,7 +311,7 @@ def test_fetch_user_posts_sync_filters_by_screen_name_and_keeps_retweets(monkeyp
     monkeypatch.setattr(
         twitter_utils,
         "_to_rssapi_tweets",
-        lambda tweets: [
+        lambda tweets, video_posters: [
             make_tweet("1", "TargetUser"),
             make_tweet("2", "TARGETUSER"),
             make_tweet("3", "SomeoneElse"),
