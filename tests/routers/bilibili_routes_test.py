@@ -17,7 +17,7 @@ async def mock_fetch_user_feed_data(mid: int, page_size: int, cookies: str | Non
     assert page_size == 2
     return {
         "mid": "4186021",
-        "name": "初夏ChuXXia",
+        "name": "示例作者",
         "face": "https://i1.hdslb.com/bfs/face/avatar.jpg",
         "sign": "每周史低+初见评测",
     }, [
@@ -30,7 +30,7 @@ async def mock_fetch_user_feed_data(mid: int, page_size: int, cookies: str | Non
             "image": "https://i0.hdslb.com/bfs/archive/cover.jpg",
             "date_published": "2024-03-09T16:00:00+00:00",
             "author": {
-                "name": "初夏ChuXXia",
+                "name": "示例作者",
                 "url": "https://space.bilibili.com/4186021",
                 "avatar": "https://i1.hdslb.com/bfs/face/avatar.jpg",
             },
@@ -67,7 +67,7 @@ async def mock_fetch_user_feed_data_with_playable_video(mid: int, page_size: int
                 }
             ],
             "author": {
-                "name": "初夏ChuXXia",
+                "name": "示例作者",
                 "url": "https://space.bilibili.com/4186021",
                 "avatar": "https://i1.hdslb.com/bfs/face/avatar.jpg",
             },
@@ -81,13 +81,13 @@ def test_bilibili_user_videos(client: TestClient, monkeypatch: pytest.MonkeyPatc
 
     assert response.status_code == 200, response.text
     data = response.json()
-    assert data["title"] == "初夏ChuXXia 的 Bilibili 投稿"
+    assert data["title"] == "示例作者 的 Bilibili 投稿"
     assert data["description"] == "每周史低+初见评测"
     assert data["home_page_url"] == ""
     assert data["author"]["url"] == "https://space.bilibili.com/4186021"
     assert data["icon"] == "https://i1.hdslb.com/bfs/face/avatar.jpg"
     assert data["items"][0]["url"] == "https://www.bilibili.com/video/BV1xx411c7mD"
-    assert data["items"][0]["author"]["name"] == "初夏ChuXXia"
+    assert data["items"][0]["author"]["name"] == "示例作者"
 
 
 def test_bilibili_user_videos_uses_stable_media_url_for_video_src(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -176,7 +176,7 @@ def test_bilibili_user_submissions(client: TestClient, monkeypatch: pytest.Monke
 
     assert response.status_code == 200, response.text
     data = response.json()
-    assert data["title"] == "初夏ChuXXia 的 Bilibili 投稿"
+    assert data["title"] == "示例作者 的 Bilibili 投稿"
     assert data["author"]["url"] == "https://space.bilibili.com/4186021"
     assert data["items"][0]["url"] == "https://www.bilibili.com/video/BV1xx411c7mD"
 

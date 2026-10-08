@@ -236,12 +236,15 @@ Cookie 使用完整字符串，最小已验证形式为 `sessionid_ss=<会话值
 ```bash
 curl 'http://localhost:8000/api/rss/douyin/user/<用户主页ID>' \
   -H "X-Douyin-Cookie: $DOUYIN_COOKIE"
-curl 'http://localhost:8000/api/rss/douyin/topic/示例话题?max_posts=30' \
+curl 'http://localhost:8000/api/rss/douyin/topic/示例话题?max_posts=15' \
   -H "X-Douyin-Cookie: $DOUYIN_COOKIE"
 ```
 
-话题名可带 `#`，在 URL 路径中需要编码为 `%23`。仅保留明确带该话题的作品，按最新发布时间排列；
-每页抓取 15 个搜索结果，最多三页，`max_posts` 默认 30、范围 1–45，过滤后可能不足该数量。
+话题名可带 `#`，在 URL 路径中需要编码为 `%23`。话题标签名包含关键词即匹配，
+例如“示例话题延伸”匹配“示例话题”；按作品 ID 去重、最新发布时间排列，不依据正文单独匹配。
+每页请求 15 个原始搜索结果，可能包含非作品卡片。`max_posts` 默认 15、范围 1–120，
+按 `ceil(max_posts / 15)` 决定最多抓取页数：默认一页，30 条对应两页，120 条对应八页。
+过滤或去重后数量不足不补页，上游无更多结果时提前结束，最多返回 `max_posts` 条作品。
 `timeout` 默认 60 秒，包括排队、浏览器初始化与分页；`use_cache=false` 可跳过 Feed 缓存。
 返回格式为 JSON Feed。
 
@@ -249,7 +252,12 @@ curl 'http://localhost:8000/api/rss/douyin/topic/示例话题?max_posts=30' \
 不覆盖其 session ID。旧响应、条目 ID 和自动抓取历史保持原样；新入口的 `feed_url` 移除 `cookies`。
 
 话题接口使用无头浏览器初始化登录态，再通过 HTTPX 直接请求搜索 API，无需操作搜索页。
+传入的 Cookie 含非空 `sessionid_ss` 时，话题客户端仅导入该登录凭据，由新浏览器生成运行时 Cookie，
+避免完整 Cookie 中的旧指纹触发初始化验证；不含该凭据时仍按原方式导入。
+话题客户端统一使用 macOS 格式的 UA，以兼容当前搜索校验；Chrome 主版本取实际浏览器版本，
+浏览器和 HTTPX 使用相同 UA。该策略也用于 Linux Docker 环境，不影响用户作品接口的 UA 和 Cookie 处理。
 初始化和搜索受限时返回 `503`，上游空响应或异常返回 `502`，超时返回 `504`，不会把验证失败缓存为空 Feed。
+后续页受限也会使整次请求失败，不返回或缓存前面已获取的部分作品；默认一页不主动请求后续页。
 该路径依赖当前抖音请求校验策略（包括 `uifid` 与 `x-tt-argus`），策略变更时需更新适配。
 
 ### Playwright 容量配置

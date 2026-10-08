@@ -34,7 +34,7 @@ from rssapi.utils.playwright_capacity import acquire_playwright_slot
 
 
 def _user(
-    username: str = "arimariash",
+    username: str = "sample_user",
     *,
     private: bool = False,
     include_privacy: bool = True,
@@ -43,7 +43,7 @@ def _user(
         "id": "1234567890",
         "secUid": "MS4wLjABAAAA-test-sec-uid",
         "uniqueId": username,
-        "nickname": "Ari",
+        "nickname": "示例作者",
         "avatarLarger": {"urlList": ["https://cdn.example/avatar.jpg"]},
     }
     if include_privacy:
@@ -52,7 +52,7 @@ def _user(
     return user
 
 
-def _post(index: int, username: str = "arimariash", *, private: bool = False) -> dict[str, Any]:
+def _post(index: int, username: str = "sample_user", *, private: bool = False) -> dict[str, Any]:
     return {
         "id": str(7_600_000_000_000_000_000 + index),
         "desc": f"Video {index}",
@@ -90,7 +90,7 @@ class LocalTikTokBrowserUpstream:
                         return
                     first_path = "/api/post/item_list/" if controller.mode == "empty" else "/api/user/detail/"
                     second_path = "/api/user/detail/" if controller.mode == "empty" else "/api/post/item_list/"
-                    username = path.removeprefix("/@") or "arimariash"
+                    username = path.removeprefix("/@") or "sample_user"
                     delay = 1200 if controller.mode == "slow" else 0
                     body = f"""
                         <html><body>Profile loaded<script>
@@ -100,7 +100,7 @@ class LocalTikTokBrowserUpstream:
                     """
                     self._send_html(body)
                     return
-                username = query.get("username", ["arimariash"])[0]
+                username = query.get("username", ["sample_user"])[0]
                 private = controller.mode == "private"
                 include_privacy = controller.mode != "missing_privacy"
                 if path == "/api/user/detail/":
@@ -207,8 +207,8 @@ def _request(*, client_host: str = "127.0.0.1", query_string: bytes = b"") -> Re
             "http_version": "1.1",
             "method": "GET",
             "scheme": "http",
-            "path": "/api/rss/tiktok/v2/arimariash/posts",
-            "raw_path": b"/api/rss/tiktok/v2/arimariash/posts",
+            "path": "/api/rss/tiktok/v2/sample_user/posts",
+            "raw_path": b"/api/rss/tiktok/v2/sample_user/posts",
             "query_string": query_string,
             "headers": [],
             "client": (client_host, 50000),
@@ -226,13 +226,13 @@ async def test_playwright_fetches_posts_and_collapses_concurrent_cache_misses(
 
     first, second = await asyncio.gather(
         fetch_user_posts_v2_by_cache(
-            "@arimariash",
+            "@sample_user",
             2,
             base_url=browser_upstream.base_url,
             timeout=10,
         ),
         fetch_user_posts_v2_by_cache(
-            "arimariash",
+            "sample_user",
             2,
             base_url=browser_upstream.base_url,
             timeout=10,
@@ -241,9 +241,9 @@ async def test_playwright_fetches_posts_and_collapses_concurrent_cache_misses(
 
     assert first == second
     user, posts = first
-    assert user["uniqueId"] == "arimariash"
+    assert user["uniqueId"] == "sample_user"
     assert [post["id"] for post in posts] == ["7600000000000000001", "7600000000000000002"]
-    assert browser_upstream.requests.count("/@arimariash") == 1
+    assert browser_upstream.requests.count("/@sample_user") == 1
 
 
 @pytest.mark.asyncio
@@ -252,11 +252,11 @@ async def test_playwright_accepts_verified_empty_posts_when_profile_response_arr
     upstream = LocalTikTokBrowserUpstream(mode="empty")
     upstream.start()
     try:
-        user, posts = await fetch_user_posts_v2("arimariash", 12, base_url=upstream.base_url, timeout=10)
+        user, posts = await fetch_user_posts_v2("sample_user", 12, base_url=upstream.base_url, timeout=10)
     finally:
         upstream.close()
 
-    assert user["uniqueId"] == "arimariash"
+    assert user["uniqueId"] == "sample_user"
     assert posts == []
 
 
@@ -267,7 +267,7 @@ async def test_playwright_reports_challenge_instead_of_empty_feed() -> None:
     upstream.start()
     try:
         with pytest.raises(TikTokBrowserError) as exc_info:
-            await fetch_user_posts_v2("arimariash", 12, base_url=upstream.base_url, timeout=10)
+            await fetch_user_posts_v2("sample_user", 12, base_url=upstream.base_url, timeout=10)
     finally:
         upstream.close()
 
@@ -283,14 +283,14 @@ async def test_cookie_header_bootstraps_browser_and_cached_result_no_longer_requ
     upstream.start()
     try:
         authenticated = await fetch_user_posts_v2_by_cache(
-            "arimariash",
+            "sample_user",
             2,
             base_url=upstream.base_url,
             timeout=10,
             cookie_header="session=abc==; theme=dark",
         )
         cached = await fetch_user_posts_v2_by_cache(
-            "arimariash",
+            "sample_user",
             2,
             base_url=upstream.base_url,
             timeout=10,
@@ -299,7 +299,7 @@ async def test_cookie_header_bootstraps_browser_and_cached_result_no_longer_requ
         upstream.close()
 
     assert authenticated == cached
-    assert upstream.requests.count("/@arimariash") == 1
+    assert upstream.requests.count("/@sample_user") == 1
     assert upstream.cookie_headers == ["session=abc==; theme=dark"]
 
 
@@ -312,7 +312,7 @@ async def test_private_profile_is_rejected_and_never_enters_public_cache() -> No
     try:
         with pytest.raises(TikTokBrowserError) as exc_info:
             await fetch_user_posts_v2_by_cache(
-                "arimariash",
+                "sample_user",
                 2,
                 base_url=upstream.base_url,
                 timeout=10,
@@ -320,7 +320,7 @@ async def test_private_profile_is_rejected_and_never_enters_public_cache() -> No
             )
         upstream.mode = "posts"
         _, posts = await fetch_user_posts_v2_by_cache(
-            "arimariash",
+            "sample_user",
             2,
             base_url=upstream.base_url,
             timeout=10,
@@ -331,7 +331,7 @@ async def test_private_profile_is_rejected_and_never_enters_public_cache() -> No
     assert exc_info.value.kind == "private"
     assert exc_info.value.status_code == 403
     assert len(posts) == 2
-    assert upstream.requests.count("/@arimariash") == 2
+    assert upstream.requests.count("/@sample_user") == 2
 
 
 @pytest.mark.asyncio
@@ -343,14 +343,14 @@ async def test_failure_cache_is_isolated_by_cookie_fingerprint() -> None:
     try:
         with pytest.raises(TikTokBrowserError) as exc_info:
             await fetch_user_posts_v2_by_cache(
-                "arimariash",
+                "sample_user",
                 2,
                 base_url=upstream.base_url,
                 timeout=10,
                 cookie_header="blocked=1",
             )
         _, posts = await fetch_user_posts_v2_by_cache(
-            "arimariash",
+            "sample_user",
             2,
             base_url=upstream.base_url,
             timeout=10,
@@ -371,7 +371,7 @@ async def test_missing_privacy_state_fails_closed(mode: str) -> None:
     upstream.start()
     try:
         with pytest.raises(TikTokBrowserError) as exc_info:
-            await fetch_user_posts_v2("arimariash", 2, base_url=upstream.base_url, timeout=10)
+            await fetch_user_posts_v2("sample_user", 2, base_url=upstream.base_url, timeout=10)
     finally:
         upstream.close()
 
@@ -387,7 +387,7 @@ async def test_timeout_cancels_hanging_response_body_capture() -> None:
     started_at = asyncio.get_running_loop().time()
     try:
         with pytest.raises(TikTokBrowserError) as exc_info:
-            await fetch_user_posts_v2("arimariash", 2, base_url=upstream.base_url, timeout=0.8)
+            await fetch_user_posts_v2("sample_user", 2, base_url=upstream.base_url, timeout=0.8)
         elapsed = asyncio.get_running_loop().time() - started_at
     finally:
         upstream.close()
@@ -405,7 +405,7 @@ async def test_timeout_failure_is_not_cached() -> None:
     try:
         with pytest.raises(TikTokBrowserError) as exc_info:
             await fetch_user_posts_v2_by_cache(
-                "arimariash",
+                "sample_user",
                 2,
                 base_url=upstream.base_url,
                 timeout=1.5,
@@ -413,7 +413,7 @@ async def test_timeout_failure_is_not_cached() -> None:
             )
         upstream.mode = "posts"
         _, posts = await fetch_user_posts_v2_by_cache(
-            "arimariash",
+            "sample_user",
             2,
             base_url=upstream.base_url,
             timeout=1.5,
@@ -431,7 +431,7 @@ async def test_global_playwright_capacity_returns_busy_before_launch() -> None:
     leases = [acquire_playwright_slot("test") for _ in range(settings.rss_playwright_concurrency)]
     try:
         with pytest.raises(TikTokBrowserError) as exc_info:
-            await fetch_user_posts_v2("arimariash", 2, base_url="http://127.0.0.1:1", timeout=5)
+            await fetch_user_posts_v2("sample_user", 2, base_url="http://127.0.0.1:1", timeout=5)
     finally:
         for lease in leases:
             lease.release()
@@ -441,7 +441,7 @@ async def test_global_playwright_capacity_returns_busy_before_launch() -> None:
 
 
 def test_tiktok_browser_does_not_start_a_stage_with_an_expired_budget() -> None:
-    scraper = TikTokPlaywright("arimariash", 2, timeout=1)
+    scraper = TikTokPlaywright("sample_user", 2, timeout=1)
     scraper._started_at = time.monotonic() - 0.95
 
     with pytest.raises(asyncio.TimeoutError):
@@ -457,7 +457,7 @@ async def test_browser_inflight_limit_rejects_excess_unique_requests() -> None:
     tasks = [
         asyncio.create_task(
             fetch_user_posts_v2_by_cache(
-                "arimariash",
+                "sample_user",
                 2,
                 base_url=upstream.base_url,
                 timeout=8,
@@ -472,7 +472,7 @@ async def test_browser_inflight_limit_rejects_excess_unique_requests() -> None:
             await asyncio.sleep(0.01)
         with pytest.raises(TikTokBrowserError) as exc_info:
             await fetch_user_posts_v2_by_cache(
-                "arimariash",
+                "sample_user",
                 2,
                 base_url=upstream.base_url,
                 timeout=8,
@@ -495,7 +495,7 @@ async def test_cancelled_waiter_does_not_leave_completed_inflight_task() -> None
     upstream.start()
     waiter = asyncio.create_task(
         fetch_user_posts_v2_by_cache(
-            "arimariash",
+            "sample_user",
             2,
             base_url=upstream.base_url,
             timeout=8,
@@ -523,10 +523,10 @@ async def test_browser_timeout_includes_waiting_for_concurrency_slot() -> None:
     await _require_chromium()
     upstream = LocalTikTokBrowserUpstream(mode="slow")
     upstream.start()
-    blocker = asyncio.create_task(fetch_user_posts_v2("arimariash", 2, base_url=upstream.base_url, timeout=5))
+    blocker = asyncio.create_task(fetch_user_posts_v2("sample_user", 2, base_url=upstream.base_url, timeout=5))
     try:
         deadline = asyncio.get_running_loop().time() + 2
-        while "/@arimariash" not in upstream.requests and asyncio.get_running_loop().time() < deadline:
+        while "/@sample_user" not in upstream.requests and asyncio.get_running_loop().time() < deadline:
             await asyncio.sleep(0.01)
         started_at = asyncio.get_running_loop().time()
         with pytest.raises(TikTokBrowserError) as exc_info:
@@ -543,7 +543,7 @@ async def test_browser_timeout_includes_waiting_for_concurrency_slot() -> None:
 def test_payload_filter_rejects_unrelated_prefetch_items() -> None:
     payload = {"itemList": [_post(1, "someone_else")]}
 
-    assert _payload_items(payload, "arimariash") is None
+    assert _payload_items(payload, "sample_user") is None
 
 
 def test_cookie_header_parser_preserves_equals_in_value() -> None:
@@ -596,18 +596,18 @@ def test_tiktok_cookie_is_required() -> None:
 
 
 def test_v2_feed_item_uses_direct_media_by_default() -> None:
-    item = _feed_item_v2(_request(), _post(1), _user(), "arimariash", 12)
+    item = _feed_item_v2(_request(), _post(1), _user(), "sample_user", 12)
 
     assert item.attachments
     assert str(item.attachments[0].url) == "https://cdn.example/video-1.mp4"
 
 
 def test_v2_feed_item_uses_proxy_media_when_configured() -> None:
-    item = _feed_item_v2(_request(), _post(1), _user(), "arimariash", 12, media_mode="proxy")
+    item = _feed_item_v2(_request(), _post(1), _user(), "sample_user", 12, media_mode="proxy")
 
     assert item.attachments
     assert str(item.attachments[0].url).startswith(
-        "http://testserver/api/rss/tiktok/v2/media/arimariash/7600000000000000001"
+        "http://testserver/api/rss/tiktok/v2/media/sample_user/7600000000000000001"
     )
 
 
@@ -616,7 +616,7 @@ def test_v2_feed_url_does_not_echo_cookie_query() -> None:
 
     feed_url = _feed_url_without_cookie(request)
 
-    assert feed_url == "http://testserver/api/rss/tiktok/v2/arimariash/posts?max_posts=12"
+    assert feed_url == "http://testserver/api/rss/tiktok/v2/sample_user/posts?max_posts=12"
     assert "secret" not in feed_url
 
 

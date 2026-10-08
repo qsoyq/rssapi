@@ -11,7 +11,13 @@ import httpx
 from playwright._impl._api_structures import SetCookieParam
 from playwright.async_api import Browser, BrowserContext, async_playwright
 
-from rssapi.applications.douyin.utils import DOUYIN_BASE_URL, playwright_cookies, post_hashtags
+from rssapi.applications.douyin.utils import (
+    DOUYIN_BASE_URL,
+    TOPIC_PAGE_SIZE,
+    parse_cookies,
+    playwright_cookies,
+    post_matches_topic,
+)
 from rssapi.utils.playwright import _browser_user_agent
 from rssapi.utils.playwright_capacity import acquire_playwright_slot_async
 from rssapi.utils.playwright_proxy import (
@@ -102,7 +108,7 @@ class DouyinTopicClient:
         self.page_delay = page_delay
         self.environment = os.environ if environment is None else environment
 
-    async def fetch(self, topic: str, cookie: str, max_posts: int = 30) -> list[dict[str, Any]]:
+    async def fetch(self, topic: str, cookie: str, max_posts: int = TOPIC_PAGE_SIZE) -> list[dict[str, Any]]:
         browser: Browser | None = None
         context: BrowserContext | None = None
         async with async_playwright() as playwright:
@@ -111,11 +117,15 @@ class DouyinTopicClient:
                 browser = await playwright.chromium.launch(
                     **playwright_launch_options(headless=True, environment=self.environment)
                 )
-                user_agent = _browser_user_agent(browser.version)
+                # Linux UA/OS search parameters trigger verify_check for otherwise valid sessions.
+                user_agent = _browser_user_agent(browser.version, runtime_platform="darwin")
                 context = await browser.new_context(user_agent=user_agent, locale="zh-CN")
+                # Imported browser fingerprints can challenge a fresh context; regenerate them here.
+                sessionid_ss = parse_cookies(cookie).get("sessionid_ss")
+                bootstrap_cookie = f"sessionid_ss={sessionid_ss}" if sessionid_ss else cookie
                 auth_cookies: list[SetCookieParam] = [
                     {"name": entry["name"], "value": entry["value"], "url": entry["url"]}
-                    for entry in playwright_cookies(cookie, self.base_url)
+                    for entry in playwright_cookies(bootstrap_cookie, self.base_url)
                 ]
                 await context.add_cookies(auth_cookies)
                 page = await context.new_page()
@@ -189,7 +199,7 @@ class DouyinTopicClient:
             "search_source": "tab_search",
             "query_correct_type": "1",
             "is_filter_search": "1",
-            "count": "15",
+            "count": str(TOPIC_PAGE_SIZE),
             "need_filter_settings": "1",
             "list_type": "multi",
             "filter_selected": json.dumps({"sort_type": "2", "publish_time": "0"}, separators=(",", ":")),
@@ -204,16 +214,17 @@ class DouyinTopicClient:
         offset = 0
         search_id = ""
         visited = {offset}
-        for page_number in range(3):
+        page_budget = (max_posts + TOPIC_PAGE_SIZE - 1) // TOPIC_PAGE_SIZE
+        for page_number in range(page_budget):
             response = await client.get(
                 f"{self.base_url}{SEARCH_PATH}", params={**params, "offset": str(offset), "search_id": search_id}
             )
             payload = search_payload(response)
             for entry in payload["data"]:
                 post = entry.get("aweme_info") if isinstance(entry, dict) else None
-                if isinstance(post, dict) and post.get("aweme_id") and topic in post_hashtags(post):
+                if isinstance(post, dict) and post.get("aweme_id") and post_matches_topic(topic, post):
                     posts.setdefault(str(post["aweme_id"]), post)
-            if len(posts) >= max_posts or not payload.get("has_more") or page_number == 2:
+            if len(posts) >= max_posts or not payload.get("has_more") or page_number + 1 == page_budget:
                 break
             try:
                 offset = int(payload["cursor"])

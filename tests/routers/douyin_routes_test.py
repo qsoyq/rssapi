@@ -96,7 +96,7 @@ def test_new_routes_share_query_header_priority_and_cookie_isolated_cache(client
         if kind == "user":
             user_feeds_cache[hashkey("creator", cookie)] = to_feeds("creator", {"aweme_list": [post(index)]})
         else:
-            topic_feeds_cache[hashkey("示例话题", cookie, 30)] = topic_posts_to_feeds("示例话题", [post(index)])
+            topic_feeds_cache[hashkey("示例话题", cookie, 15)] = topic_posts_to_feeds("示例话题", [post(index)])
     path = f"/api/rss/douyin/{kind}/{'creator' if kind == 'user' else '示例话题'}"
     query_only = client.get(path, params={"cookies": "sessionid_ss=query-session"})
     header_only = client.get(path, headers={"X-Douyin-Cookie": "sessionid_ss=header-session"})
@@ -125,7 +125,7 @@ def test_new_routes_reject_missing_or_empty_credentials(client: TestClient, path
 
 def test_topic_normalization_and_publisher_survive_feed_middlewares(client: TestClient) -> None:
     items = topic_posts_to_feeds("示例话题", [post(1), post(2)])
-    topic_feeds_cache[hashkey("示例话题", "sessionid_ss=value", 30)] = items
+    topic_feeds_cache[hashkey("示例话题", "sessionid_ss=value", 15)] = items
     response = client.get(
         f"/api/rss/douyin/topic/{quote('#示例话题', safe='')}", headers={"X-Douyin-Cookie": "sessionid_ss=value"}
     )
@@ -152,22 +152,28 @@ def test_cookie_parser_preserves_padding_and_header_presence() -> None:
     assert normalize_topic(" #示例话题 ") == "示例话题"
 
 
-def test_topic_conversion_handles_gallery_nulls_exact_tags_and_deduplication() -> None:
+def test_topic_conversion_handles_gallery_nulls_contained_tags_and_deduplication() -> None:
     gallery = post(2, timestamp=1_700_000_100)
     gallery.update(item_title=None, video_tag=None, video=None, desc="<script>bad()</script> #示例话题")
     gallery["images"] = [{"url_list": ["https://cdn.example/image.jpg?x=1&y=2"]}, None, {"url_list": []}]
-    unrelated = post(3, hashtag="示例话题其他")
+    related = post(3, hashtag="示例话题延伸")
+    prefixed = post(5, hashtag="关联示例话题")
+    unrelated = post(6, hashtag="其他标签")
     unrelated["desc"] = "#示例话题"
+    missing_tags = post(7)
+    missing_tags["text_extra"] = None
     missing_time = post(4)
     missing_time.pop("create_time")
-    items = topic_posts_to_feeds("示例话题", [post(1), gallery, post(1), unrelated, missing_time])
+    items = topic_posts_to_feeds(
+        "示例话题", [post(1), gallery, post(1), related, prefixed, unrelated, missing_tags, missing_time]
+    )
     feed = JSONFeed.model_validate({"title": "话题订阅", "items": items})
-    assert [item.id for item in feed.items] == ["douyin.aweme.2", "douyin.aweme.1"]
+    assert [item.id for item in feed.items] == ["douyin.aweme.2", "douyin.aweme.1", "douyin.aweme.3", "douyin.aweme.5"]
     names = []
     for item in items:
         assert item.author is not None
         names.append(item.author.name)
-    assert names == ["作者 2", "作者 1"]
+    assert names == ["作者 2", "作者 1", "作者 3", "作者 5"]
     assert items[0].content_html is not None
     assert items[1].content_html is not None
     assert '<img src="https://cdn.example/image.jpg?x=1&amp;y=2">' in items[0].content_html
@@ -175,6 +181,42 @@ def test_topic_conversion_handles_gallery_nulls_exact_tags_and_deduplication() -
     assert "&lt;script&gt;" in items[0].content_html
     assert "<video" in items[1].content_html
     assert items[1].date_published == "2023-11-15T06:13:20+08:00"
+
+
+def test_topic_openapi_documents_paging_and_matching(client: TestClient) -> None:
+    operation = client.get("/openapi.json").json()["paths"]["/api/rss/douyin/topic/{topic}"]["get"]
+    schema = next(parameter["schema"] for parameter in operation["parameters"] if parameter["name"] == "max_posts")
+    assert schema["default"] == 15
+    assert schema["minimum"] == 1
+    assert schema["maximum"] == 120
+    assert "ceil(max_posts / 15)" in operation["description"]
+    assert "包含" in operation["description"]
+    assert "不补页" in operation["description"]
+
+
+@pytest.mark.parametrize("max_posts", [0, 121])
+def test_topic_rejects_out_of_range_max_posts(client: TestClient, max_posts: int) -> None:
+    assert (
+        client.get(
+            "/api/rss/douyin/topic/示例话题",
+            params={"max_posts": max_posts},
+            headers={"X-Douyin-Cookie": "sessionid_ss=value"},
+        ).status_code
+        == 422
+    )
+
+
+@pytest.mark.parametrize("max_posts", [15, 16, 45, 46, 120])
+def test_topic_accepts_page_boundaries(client: TestClient, max_posts: int) -> None:
+    topic_feeds_cache[hashkey("示例话题", "sessionid_ss=value", max_posts)] = topic_posts_to_feeds(
+        "示例话题", [post(1)]
+    )
+    response = client.get(
+        "/api/rss/douyin/topic/示例话题",
+        params={"max_posts": max_posts},
+        headers={"X-Douyin-Cookie": "sessionid_ss=value"},
+    )
+    assert response.status_code == 200
 
 
 @pytest.mark.asyncio
