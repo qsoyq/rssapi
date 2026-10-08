@@ -4,6 +4,8 @@ from tests import Settings
 
 from rssapi.main import app
 
+pytestmark = pytest.mark.external_api
+
 
 @pytest.fixture(scope="module")
 def client():

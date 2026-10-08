@@ -37,6 +37,9 @@ jobs:
         run: uv sync --all-groups
 
       - name: Run pre-commit
+        env:
+          # The Test job runs this hook's test suite separately with Chromium installed.
+          SKIP: pytest-default
         run: uv run pre-commit run --all-files
 
       - name: Run Ruff lint
@@ -70,8 +73,8 @@ jobs:
       - name: Install Playwright Chromium
         run: uv run playwright install --with-deps chromium
 
-      - name: Run tests
-        run: uv run pytest tests/
+      - name: Run default tests (no external API)
+        run: uv run pytest tests/ -m "not external_api"
 
   release:
     name: Release

@@ -11,21 +11,33 @@ from rssapi.utils.nga import NgaToolkit
 
 def _is_host_reachable(host: str, port: int = 443, timeout: float = 3.0) -> bool:
     try:
-        socket.create_connection((host, port), timeout=timeout)
+        with socket.create_connection((host, port), timeout=timeout):
+            pass
         return True
     except OSError:
         return False
 
 
+@pytest.fixture
+def nga_image_cdn() -> None:
+    if not _is_host_reachable("img4.nga.cn"):
+        pytest.skip("img4.nga.cn unreachable")
+
+
+@pytest.fixture
+def nga_credentials() -> tuple[str, str]:
+    cid, uid = os.getenv("ngaPassportCid"), os.getenv("ngaPassportUid")
+    if not cid or not uid:
+        pytest.skip("requires NGA credentials")
+    return cid, uid
+
+
+@pytest.mark.external_api
 @pytest.mark.asyncio
 @pytest.mark.nga_delay
-@pytest.mark.skipif(
-    not (os.getenv("ngaPassportCid") and os.getenv("ngaPassportUid")),
-    reason="requires NGA credentials",
-)
-async def test_nga_fetch_thread_detail():
+async def test_nga_fetch_thread_detail(nga_credentials: tuple[str, str]):
     url = "https://bbs.nga.cn/read.php?tid=44834023"
-    cid, uid = os.getenv("ngaPassportCid"), os.getenv("ngaPassportUid")
+    cid, uid = nga_credentials
     res = await NgaToolkit.fetch_thread_detail(url, cid, uid)
     assert res
     assert res.authorUrl
@@ -133,12 +145,6 @@ def test_nga_content_html_format():
         == """<span style="text-align:right">需要改后缀名解压，格式ZIP(不是MP4)<br/>统一密码：chuanhuo<br/><br/>由于需要加密分享，解压软件适配一般<br/>电脑(RAR、bandizip)<br/>安卓(RAR、Zarchiver)<br/>解压失败的可以用最下面提供的解压软件</span>"""
     )
 
-    # emoji (skipped when NGA CDN is unreachable)
-    content_html = "[s:ac:goodjob]"
-    formatted = NgaToolkit.format_content_html(content_html)
-    if formatted != "[s:ac:goodjob]":
-        assert formatted == """<img src="https://img4.nga.cn/ngabbs/post/smile/ac1.png">"""
-
     # del
     content_html = "[del]Example[/del]"
     assert NgaToolkit.format_content_html(content_html) == """<del>Example</del>"""
@@ -215,6 +221,7 @@ async def test_nga_get_sections_uses_current_image_cdn(monkeypatch: pytest.Monke
     assert requested_urls == ["https://img4.nga.cn/proxy/cache_attach/bbs_index_data.js"]
 
 
+@pytest.mark.external_api
 @pytest.mark.asyncio
 @pytest.mark.nga_delay
 async def test_nga_content_html_format_bad_case():
@@ -247,8 +254,11 @@ async def test_nga_content_html_format_bad_case():
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(not _is_host_reachable("img4.nga.cn"), reason="img4.nga.cn unreachable")
-async def test_nga_emoji_replace():
+@pytest.mark.external_api
+async def test_nga_emoji_replace(nga_image_cdn: None):
     data = NgaToolkit.get_smiles()
     smiles = {s.name: s.tag for s in data}
     assert smiles
+    assert NgaToolkit.format_content_html("[s:ac:goodjob]") == (
+        '<img src="https://img4.nga.cn/ngabbs/post/smile/ac1.png">'
+    )

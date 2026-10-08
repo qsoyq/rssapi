@@ -25,7 +25,7 @@ uv run ruff format --check .
 uv run pytest tests/
 ```
 
-Run a focused test while iterating, then run the full test suite before opening a PR.
+Run a focused test while iterating, then run the complete default test suite before opening a PR. Run external API tests explicitly with `uv run pytest tests/ -m external_api`, or all categories with `uv run pytest tests/ -m ""` when upstream access and credentials are available.
 
 ## Development workflow
 
@@ -38,6 +38,9 @@ Run a focused test while iterating, then run the full test suite before opening 
 ## Testing notes
 
 - Tests live under `tests/`.
+- pytest, local pre-commit, and CI exclude `external_api` tests by default.
+- Mark every test that accesses external networks, including fixture, initialization, browser, and script requests. Local HTTP/browser tests remain default only if their entire request chain stays local.
+- Do not perform network probes or browser Cookie lookup during collection. Test configuration disables unrelated NGA preloading and Douyin background fetching.
 - Some routes depend on upstream network behavior; prefer unit tests or mocked responses when practical.
 - Preserve existing cache and settings behavior unless the Issue explicitly changes it.
 

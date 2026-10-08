@@ -38,11 +38,37 @@ uv run uvicorn rssapi.main:app --reload
 
 ## Test
 
+Default tests run without external API requests. This includes pure logic, in-process FastAPI requests, and HTTP/browser tests that only use local services:
+
 ```bash
 uv run pytest tests/
 ```
 
-The default test run is intended for CI and skips live upstream integration cases that require private credentials or stable third-party access, such as NGA credentialed requests, Reddit live subreddit fetches, and Loon plugin URLs that can be blocked by upstream anti-bot checks. Re-enable or run those cases locally only when the required credentials and network access are available.
+Run only external API integration tests:
+
+```bash
+uv run pytest tests/ -m external_api
+```
+
+Run both categories (the empty marker expression overrides the default filter):
+
+```bash
+uv run pytest tests/ -m ""
+```
+
+Mark any test that accesses an external network with `pytest.mark.external_api`, including requests made by fixtures, application initialization, browser pages, scripts, or dependent services. Local URLs alone do not establish that a browser test is local: its full request chain must stay local. Mixed test modules use function/class markers; a module marker is appropriate only when every test requires external access. Keep network probes and credential/Cookie lookup inside execution-time fixtures or test bodies, never at import/collection time.
+
+The real Chromium-channel TikTok tests are marked external even with a local HTTP upstream, because this browser mode makes background Google requests. The local Douyin tests use Chromium Headless Shell; its network logs showed only loopback HTTP requests, so those tests remain in the default suite. Recheck browser network behavior when changing Playwright, browser versions, launch options, or test pages.
+
+Tests disable NGA smile preloading and automatic Douyin user fetching so starting the application does not cause unrelated upstream requests. Default tests temporarily clear HTTP/HTTPS/ALL proxy environment variables to keep local service requests local; external tests retain the original proxy environment. Explicit external tests still call the upstream functions normally. Missing credentials produce skips; existing unconditional skips remain in effect even in the full suite. External failures must be investigated rather than silently converted to passing tests.
+
+Local pre-commit runs the default test suite, and CI runs the same category in its Test job. The CI Lint job skips the duplicate pytest hook. Install Chromium for local browser tests:
+
+```bash
+uv run playwright install chromium
+```
+
+Dependency and browser installation may download files; the test categories describe requests made during test collection and execution.
 
 ## Lint and format
 
