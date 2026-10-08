@@ -20,6 +20,7 @@ from rssapi.applications.rss.schemas.rss.jsonfeed import (
 )
 from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
+from rssapi.utils.html import render_collapsible_body
 from rssapi.utils.urls import public_url
 
 logger = logging.getLogger(__name__)
@@ -527,7 +528,7 @@ def post_to_jsonfeed_item(
     if metrics:
         body_parts.append(f"<p>{' · '.join(metrics)}</p>")
     if body_parts:
-        content_parts.append(f"<details><summary>查看正文</summary>{''.join(body_parts)}</details>")
+        content_parts.append(render_collapsible_body("".join(body_parts)))
     if not content_parts:
         content_parts.append("<p>Instagram post</p>")
 

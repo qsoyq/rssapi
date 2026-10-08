@@ -22,6 +22,7 @@ from rssapi.applications.rss.schemas.rss.jsonfeed import (
 )
 from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
+from rssapi.utils.html import render_collapsible_body
 
 logger = logging.getLogger(__name__)
 requests = curl_cffi.requests
@@ -505,7 +506,7 @@ def post_to_jsonfeed_item(
     if media_html:
         content_parts.append(f"<div>{''.join(media_html)}</div>")
     if body_html:
-        content_parts.append(f"<details><summary>查看正文</summary>{''.join(body_html)}</details>")
+        content_parts.append(render_collapsible_body("".join(body_html)))
     if not content_parts:
         content_parts.append("<p>TikTok post</p>")
 

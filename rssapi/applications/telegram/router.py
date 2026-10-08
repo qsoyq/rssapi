@@ -10,11 +10,12 @@ from fastapi import APIRouter, HTTPException, Path, Query, Request
 from fastapi.responses import RedirectResponse
 
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeed, JSONFeedAttachment, JSONFeedItem
-from rssapi.applications.telegram.schemas import TelegramMedia
+from rssapi.applications.telegram.schemas import TelegramChannalMessage, TelegramMedia
 from rssapi.core.responses import PrettyJSONFeedResponse
 from rssapi.core.settings import settings
 from rssapi.utils.basic import TelegramToolkit
 from rssapi.utils.cache import RandomTTLCache
+from rssapi.utils.html import render_collapsible_body
 from rssapi.utils.md import markdown_parse
 from rssapi.utils.urls import public_request_url, public_url
 
@@ -56,60 +57,59 @@ async def channel_jsonfeed(req: Request, channels: list[str] = Query(..., descri
 
 
 async def fetch_feeds(channels: list[str], *, req: Request | None = None) -> list[JSONFeedItem]:
-    items = []
     tasks = await asyncio.gather(*[get_channel_messages(channelName) for channelName in channels])
-    for message in chain(*tasks):
-        if message.contentHtml:
-            try:
-                message.contentHtml = markdown_parse(message.contentHtml)
-            except Exception as e:
-                logger.warning(f"convert markdown to html failed: {e}")
-        payload = {
-            "id": f"{message.channelName}-{message.msgid}",
-            "title": f"{message.title}",
-            "url": f"https://t.me/{message.channelName}/{message.msgid}",
-            "date_published": message.updated,
-            "content_html": message.contentHtml or "",
-            "tags": message.tags,
-            "author": {
-                "avatar": message.head,
-                "name": message.channelName,
-                "url": f"https://t.me/{message.channelName}",
-            },
-        }
+    return [message_to_jsonfeed_item(message, req=req) for message in chain(*tasks)]
 
-        media_items = message.media or [
-            TelegramMedia(kind="image", url=url, mime_type="image/jpeg") for url in message.photoUrls or []
-        ]
-        if media_items:
-            attachments: list[JSONFeedAttachment] = []
-            media_html: list[str] = []
-            for index, media in enumerate(media_items):
-                rendered_url = (
-                    public_url(
-                        req, f"{settings.api_prefix}/rss/telegram/media/{message.username}/{message.msgid}/{index}"
-                    )
-                    if req is not None
-                    else str(media.url)
+
+def message_to_jsonfeed_item(message: TelegramChannalMessage, *, req: Request | None = None) -> JSONFeedItem:
+    body_html = message.contentHtml or ""
+    if body_html:
+        try:
+            body_html = markdown_parse(body_html)
+        except Exception as e:
+            logger.warning(f"convert markdown to html failed: {e}")
+    payload: dict[str, Any] = {
+        "id": f"{message.channelName}-{message.msgid}",
+        "title": message.title,
+        "url": f"https://t.me/{message.channelName}/{message.msgid}",
+        "date_published": message.updated,
+        "content_html": render_collapsible_body(body_html),
+        "tags": message.tags,
+        "author": {
+            "avatar": message.head,
+            "name": message.channelName,
+            "url": f"https://t.me/{message.channelName}",
+        },
+    }
+
+    media_items = message.media or [
+        TelegramMedia(kind="image", url=url, mime_type="image/jpeg") for url in message.photoUrls or []
+    ]
+    if media_items:
+        attachments: list[JSONFeedAttachment] = []
+        media_html: list[str] = []
+        for index, media in enumerate(media_items):
+            rendered_url = (
+                public_url(req, f"{settings.api_prefix}/rss/telegram/media/{message.username}/{message.msgid}/{index}")
+                if req is not None
+                else str(media.url)
+            )
+            safe_url = escape(rendered_url, quote=True)
+            if media.kind == "video":
+                media_html.append(f'<video controls preload="metadata" src="{safe_url}"></video>')
+                attachments.append(
+                    JSONFeedAttachment.model_validate({"url": rendered_url, "mime_type": media.mime_type})
                 )
-                safe_url = escape(rendered_url, quote=True)
-                if media.kind == "video":
-                    media_html.append(f'<video controls preload="metadata" src="{safe_url}"></video>')
-                    attachments.append(
-                        JSONFeedAttachment.model_validate({"url": rendered_url, "mime_type": media.mime_type})
-                    )
-                else:
-                    media_html.append(TelegramToolkit.generate_img_tag(safe_url))
-                    if req is not None and payload.get("image") is None:
-                        payload["image"] = rendered_url
-                        payload["banner_image"] = rendered_url
-            payload["content_html"] = f"🖼️ {''.join(media_html)}{payload['content_html']}"
-            if attachments:
-                payload["attachments"] = attachments
+            else:
+                media_html.append(TelegramToolkit.generate_img_tag(safe_url))
+                if req is not None and payload.get("image") is None:
+                    payload["image"] = rendered_url
+                    payload["banner_image"] = rendered_url
+        payload["content_html"] = f"🖼️ {''.join(media_html)}{payload['content_html']}"
+        if attachments:
+            payload["attachments"] = attachments
 
-        items.append(JSONFeedItem(**payload))
-
-    return items
+    return JSONFeedItem(**payload)
 
 
 @router.get(

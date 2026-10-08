@@ -21,6 +21,7 @@ from rssapi.applications.rss.schemas.rss.jsonfeed import (
 from rssapi.applications.weibo.emotions import emotion_map_for_post, render_emotion_text
 from rssapi.core.settings import settings
 from rssapi.utils.cache import RandomTTLCache
+from rssapi.utils.html import render_collapsible_body
 from rssapi.utils.urls import public_request_url, public_url
 
 logger = logging.getLogger(__name__)
@@ -661,7 +662,7 @@ def post_to_jsonfeed_item(
 
     body_html = _body_html(post)
     if body_html:
-        content_parts.append(f"<details><summary>查看正文</summary>{body_html}</details>")
+        content_parts.append(render_collapsible_body(body_html))
     if not content_parts:
         content_parts.append("<p>微博动态</p>")
 

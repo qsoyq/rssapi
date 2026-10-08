@@ -267,6 +267,7 @@ class AppSettings(BaseSettings):  # type:ignore
     api_prefix: str = "/api"
     basic_auth_user: str = "root"
     basic_auth_passwd: str = "example"
+    rss_collapse_body_enabled: bool = True
 
     twitter: TwitterSettings = TwitterSettings()
     reddit: RedditSettings = RedditSettings()
