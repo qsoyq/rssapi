@@ -26,7 +26,11 @@ uv run ruff format --check .
 uv run pytest tests/
 ```
 
-Run targeted tests while iterating, then run the full suite before creating a PR.
+Run targeted tests while iterating, then run the complete default test suite before creating a PR. Local pre-commit and CI exclude tests marked `external_api`; CI runs pytest once in its Test job.
+
+Run external API integration tests explicitly with `uv run pytest tests/ -m external_api`, or run all categories with `uv run pytest tests/ -m ""`. Configure any required upstream credentials locally. Missing credentials and existing unconditional skips remain skips in these modes.
+
+Mark tests based on their full request chain, including fixtures, initialization, and browser/script requests. Keep local HTTP/browser tests in the default suite only when all their requests stay local. Do not perform network probes or read browser Cookies during collection. See the README testing section for setup and classification rules.
 
 ## Commit messages
 

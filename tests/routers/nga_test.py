@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 
 from rssapi.main import app
 
+pytestmark = pytest.mark.external_api
+
 FIRST_DELAY = True
 
 
@@ -13,6 +15,14 @@ FIRST_DELAY = True
 def client():
     with TestClient(app) as client:
         yield client
+
+
+@pytest.fixture
+def nga_credentials() -> tuple[str, str, str]:
+    cid, uid, favor = os.getenv("ngaPassportCid"), os.getenv("ngaPassportUid"), os.getenv("ngaFavor")
+    if not cid or not uid or not favor:
+        pytest.skip("requires NGA credentials and favor id")
+    return cid, uid, favor
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -32,12 +42,8 @@ def delay(request):
 
 
 @pytest.mark.nga_delay
-@pytest.mark.skipif(
-    not (os.getenv("ngaPassportCid") and os.getenv("ngaPassportUid") and os.getenv("ngaFavor")),
-    reason="requires NGA credentials and favor id",
-)
-def test_favor_jsonfeed(client: TestClient):
-    cid, uid, favor = os.getenv("ngaPassportCid"), os.getenv("ngaPassportUid"), os.getenv("ngaFavor")
+def test_favor_jsonfeed(client: TestClient, nga_credentials: tuple[str, str, str]):
+    cid, uid, favor = nga_credentials
     params = {"cid": cid, "uid": uid}
 
     response = client.get(f"/api/rss/nga/favor/{favor}", params=params)
@@ -50,12 +56,8 @@ def test_favor_jsonfeed(client: TestClient):
 
 
 @pytest.mark.nga_delay
-@pytest.mark.skipif(
-    not (os.getenv("ngaPassportCid") and os.getenv("ngaPassportUid") and os.getenv("ngaFavor")),
-    reason="requires NGA credentials and favor id",
-)
-def test_threads_jsonfeed(client: TestClient):
-    cid, uid = os.getenv("ngaPassportCid"), os.getenv("ngaPassportUid")
+def test_threads_jsonfeed(client: TestClient, nga_credentials: tuple[str, str, str]):
+    cid, uid, _ = nga_credentials
 
     response = client.get("/api/rss/nga/threads", params={"fids": [708], "cid": cid, "uid": uid})
     if response.status_code == 504:

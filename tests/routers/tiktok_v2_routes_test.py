@@ -217,6 +217,7 @@ def _request(*, client_host: str = "127.0.0.1", query_string: bytes = b"") -> Re
     )
 
 
+@pytest.mark.external_api
 @pytest.mark.asyncio
 async def test_playwright_fetches_posts_and_collapses_concurrent_cache_misses(
     browser_upstream: LocalTikTokBrowserUpstream,
@@ -246,6 +247,7 @@ async def test_playwright_fetches_posts_and_collapses_concurrent_cache_misses(
     assert browser_upstream.requests.count("/@sample_user") == 1
 
 
+@pytest.mark.external_api
 @pytest.mark.asyncio
 async def test_playwright_accepts_verified_empty_posts_when_profile_response_arrives_last() -> None:
     await _require_chromium()
@@ -260,6 +262,7 @@ async def test_playwright_accepts_verified_empty_posts_when_profile_response_arr
     assert posts == []
 
 
+@pytest.mark.external_api
 @pytest.mark.asyncio
 async def test_playwright_reports_challenge_instead_of_empty_feed() -> None:
     await _require_chromium()
@@ -275,6 +278,7 @@ async def test_playwright_reports_challenge_instead_of_empty_feed() -> None:
     assert exc_info.value.status_code == 503
 
 
+@pytest.mark.external_api
 @pytest.mark.asyncio
 async def test_cookie_header_bootstraps_browser_and_cached_result_no_longer_requires_cookie() -> None:
     await _require_chromium()
@@ -303,6 +307,7 @@ async def test_cookie_header_bootstraps_browser_and_cached_result_no_longer_requ
     assert upstream.cookie_headers == ["session=abc==; theme=dark"]
 
 
+@pytest.mark.external_api
 @pytest.mark.asyncio
 async def test_private_profile_is_rejected_and_never_enters_public_cache() -> None:
     await _require_chromium()
@@ -334,6 +339,7 @@ async def test_private_profile_is_rejected_and_never_enters_public_cache() -> No
     assert upstream.requests.count("/@sample_user") == 2
 
 
+@pytest.mark.external_api
 @pytest.mark.asyncio
 async def test_failure_cache_is_isolated_by_cookie_fingerprint() -> None:
     await _require_chromium()
@@ -363,6 +369,7 @@ async def test_failure_cache_is_isolated_by_cookie_fingerprint() -> None:
     assert len(posts) == 2
 
 
+@pytest.mark.external_api
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["missing_privacy", "missing_private_account", "missing_secret"])
 async def test_missing_privacy_state_fails_closed(mode: str) -> None:
@@ -379,6 +386,7 @@ async def test_missing_privacy_state_fails_closed(mode: str) -> None:
     assert exc_info.value.status_code == 502
 
 
+@pytest.mark.external_api
 @pytest.mark.asyncio
 async def test_timeout_cancels_hanging_response_body_capture() -> None:
     await _require_chromium()
@@ -396,6 +404,7 @@ async def test_timeout_cancels_hanging_response_body_capture() -> None:
     assert elapsed < 4
 
 
+@pytest.mark.external_api
 @pytest.mark.asyncio
 async def test_timeout_failure_is_not_cached() -> None:
     await _require_chromium()
@@ -448,6 +457,7 @@ def test_tiktok_browser_does_not_start_a_stage_with_an_expired_budget() -> None:
         scraper._stage_timeout(5)
 
 
+@pytest.mark.external_api
 @pytest.mark.asyncio
 async def test_browser_inflight_limit_rejects_excess_unique_requests() -> None:
     await _require_chromium()
@@ -487,6 +497,7 @@ async def test_browser_inflight_limit_rejects_excess_unique_requests() -> None:
     assert await v2_inflight_count() == 0
 
 
+@pytest.mark.external_api
 @pytest.mark.asyncio
 async def test_cancelled_waiter_does_not_leave_completed_inflight_task() -> None:
     await _require_chromium()
@@ -518,6 +529,7 @@ async def test_cancelled_waiter_does_not_leave_completed_inflight_task() -> None
     assert await v2_inflight_count() == 0
 
 
+@pytest.mark.external_api
 @pytest.mark.asyncio
 async def test_browser_timeout_includes_waiting_for_concurrency_slot() -> None:
     await _require_chromium()

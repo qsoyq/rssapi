@@ -3,6 +3,8 @@ from fastapi.testclient import TestClient
 
 from rssapi.main import app
 
+pytestmark = pytest.mark.external_api
+
 
 @pytest.fixture(scope="module")
 def client():

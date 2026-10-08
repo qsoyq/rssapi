@@ -10,6 +10,7 @@ def client():
         yield client
 
 
+@pytest.mark.external_api
 def test_1024_day(client: TestClient):
     response = client.get("/api/rss/1024.day/newest")
     assert response.status_code == 200
@@ -22,6 +23,7 @@ def test_jsonfeed_example(client: TestClient):
     assert response.json()["items"]
 
 
+@pytest.mark.external_api
 def test_go_fans(client: TestClient):
     response = client.get("/api/rss/gofans/iOS")
     assert response.status_code == 200
@@ -32,6 +34,7 @@ def test_go_fans(client: TestClient):
     assert response.json()["items"]
 
 
+@pytest.mark.external_api
 @pytest.mark.skip(reason="requires live Loon upstream access")
 def test_loon(client: TestClient):
     response = client.get(
@@ -41,6 +44,7 @@ def test_loon(client: TestClient):
     assert response.json()["items"]
 
 
+@pytest.mark.external_api
 @pytest.mark.skip(reason="nodeseek category temporarily skipped")
 def test_nodeseek_category(client: TestClient):
     response = client.get("/api/rss/nodeseek/category/tech")
@@ -48,12 +52,14 @@ def test_nodeseek_category(client: TestClient):
     assert response.json()["items"]
 
 
+@pytest.mark.external_api
 def test_readhub(client: TestClient):
     response = client.get("/api/rss/readhub/daily")
     assert response.status_code == 200
     assert response.json()["items"]
 
 
+@pytest.mark.external_api
 def test_telegram_channel(client: TestClient):
     response = client.get("/api/rss/telegram/channel", params={"channels": ["JISFW"]})
     assert response.status_code == 200
