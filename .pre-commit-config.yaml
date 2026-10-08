@@ -86,6 +86,13 @@ repos:
 
     - repo: local
       hooks:
+          - id: pytest-default
+            name: pytest default tests (no external API)
+            entry: uv run pytest tests/ -m "not external_api"
+            language: system
+            pass_filenames: false
+            require_serial: true
+            files: "\\.(py|toml|lock)$"
           - id: tox-startup
             name: tox startup check (py3.10-3.14)
             entry: uv run tox -p auto

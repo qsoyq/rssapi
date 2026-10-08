@@ -28,6 +28,7 @@ def raw_listing() -> dict:
 # ── SubredditAbout model ────────────────────────────────────────
 
 
+@pytest.mark.external_api
 class TestSubredditAbout:
     def test_parse(self, raw_about: dict):
         about = SubredditAbout.model_validate(raw_about)
@@ -49,6 +50,7 @@ class TestSubredditAbout:
 # ── SubredditListing model ──────────────────────────────────────
 
 
+@pytest.mark.external_api
 class TestSubredditListing:
     def test_parse(self, raw_listing: dict):
         listing = SubredditListing.model_validate(raw_listing)
@@ -81,6 +83,7 @@ class TestSubredditListing:
 # ── Gallery extraction ──────────────────────────────────────────
 
 
+@pytest.mark.external_api
 class TestGalleryExtraction:
     @pytest.fixture(scope="class")
     def gallery_post(self, raw_listing: dict) -> PostData | None:
@@ -118,6 +121,7 @@ class TestGalleryExtraction:
 
 
 class TestPreviewExtraction:
+    @pytest.mark.external_api
     def test_non_gallery_preview(self, raw_listing: dict):
         listing = SubredditListing.model_validate(raw_listing)
         assert listing.data is not None
@@ -191,6 +195,7 @@ class TestVideoExtraction:
 # ── Feed item building ──────────────────────────────────────────
 
 
+@pytest.mark.external_api
 class TestBuildFeedItem:
     def test_build(self, raw_listing: dict):
         listing = SubredditListing.model_validate(raw_listing)
@@ -221,6 +226,7 @@ class TestBuildFeedItem:
 # ── fetch_subreddit_feed integration ───────────────────────────
 
 
+@pytest.mark.external_api
 class TestFetchSubredditFeed:
     @pytest.mark.skip(reason="requires live Reddit upstream access")
     def test_returns_about_and_items(self):

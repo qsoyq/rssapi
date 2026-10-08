@@ -4,6 +4,8 @@ from fastapi.testclient import TestClient
 
 from rssapi.main import app
 
+pytestmark = pytest.mark.external_api
+
 
 def _get_twitter_cookie_string() -> str:
     for domain in ("x.com", "twitter.com"):

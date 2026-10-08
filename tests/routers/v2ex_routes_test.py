@@ -26,6 +26,7 @@ def require_v2ex_session_key() -> str:
     return session_key
 
 
+@pytest.mark.external_api
 def test_v2ex_aggregation(client: TestClient):
     response = client.get("/api/rss/jsonfeed/v2ex/aggregation", params={"topics": ["dns"]})
     assert response.status_code == 200
@@ -46,6 +47,7 @@ def test_v2ex_favorite_session_key_header_has_higher_priority_than_query():
     assert _resolve_favorite_session_key("query-session-key", "header-session-key") == "header-session-key"
 
 
+@pytest.mark.external_api
 def test_v2ex_favorite_supports_query_session_key(client: TestClient):
     path = "/api/rss/jsonfeed/v2ex/favorite"
     session_key = require_v2ex_session_key()
@@ -63,6 +65,7 @@ def test_v2ex_notifications_requires_token(client: TestClient):
     )
 
 
+@pytest.mark.external_api
 def test_v2ex_notifications_supports_query_token(client: TestClient):
     path = "/api/rss/jsonfeed/v2ex/notifications"
     token = require_v2ex_token()
@@ -71,6 +74,7 @@ def test_v2ex_notifications_supports_query_token(client: TestClient):
     assert isinstance(response.json()["items"], list)
 
 
+@pytest.mark.external_api
 def test_v2ex_notifications_path_token_still_works(client: TestClient):
     token = require_v2ex_token()
     response = client.get(f"/api/rss/jsonfeed/v2ex/notifications/{token}")
@@ -78,6 +82,7 @@ def test_v2ex_notifications_path_token_still_works(client: TestClient):
     assert isinstance(response.json()["items"], list)
 
 
+@pytest.mark.external_api
 def test_v2ex_notifications_header_token_has_higher_priority_than_query(client: TestClient):
     path = "/api/rss/jsonfeed/v2ex/notifications"
     token = require_v2ex_token()

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,5 +16,5 @@ class V2exTestSettings(BaseSettings):
 
 
 class Settings(BaseModel):
-    github: GithubTestSettings = GithubTestSettings()
-    v2ex: V2exTestSettings = V2exTestSettings()
+    github: GithubTestSettings = Field(default_factory=GithubTestSettings)
+    v2ex: V2exTestSettings = Field(default_factory=V2exTestSettings)
