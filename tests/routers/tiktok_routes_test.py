@@ -22,18 +22,18 @@ from rssapi.main import app
 from rssapi.utils.cache import RandomTTLCache
 
 
-def _user(username: str = "arimariash", *, private: bool = False) -> dict[str, Any]:
+def _user(username: str = "sample_user", *, private: bool = False) -> dict[str, Any]:
     return {
         "id": "1234567890",
         "secUid": "MS4wLjABAAAA-test-sec-uid",
         "uniqueId": username,
-        "nickname": "Ari",
+        "nickname": "示例作者",
         "privateAccount": private,
         "avatarLarger": {"urlList": ["https://cdn.example/avatar.jpg"]},
     }
 
 
-def _video_post(index: int, username: str = "arimariash") -> dict[str, Any]:
+def _video_post(index: int, username: str = "sample_user") -> dict[str, Any]:
     return {
         "id": str(7_600_000_000_000_000_000 + index),
         "desc": f"Video {index}\n#travel",
@@ -58,7 +58,7 @@ def _video_post(index: int, username: str = "arimariash") -> dict[str, Any]:
     }
 
 
-def _image_post(index: int, username: str = "arimariash") -> dict[str, Any]:
+def _image_post(index: int, username: str = "sample_user") -> dict[str, Any]:
     post = _video_post(index, username)
     post.pop("video")
     post["imagePost"] = {
@@ -201,7 +201,7 @@ def tiktok_upstream() -> Iterator[LocalTikTokUpstream]:
 
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [("arimariash", "arimariash"), ("@arimariash", "arimariash"), ("@Mixed.Case", "mixed.case")],
+    [("sample_user", "sample_user"), ("@sample_user", "sample_user"), ("@Mixed.Case", "mixed.case")],
 )
 def test_normalize_username(value: str, expected: str) -> None:
     assert normalize_username(value) == expected
@@ -209,9 +209,9 @@ def test_normalize_username(value: str, expected: str) -> None:
 
 @pytest.mark.asyncio
 async def test_fetch_user_posts_resolves_public_profile_and_paginates(tiktok_upstream: LocalTikTokUpstream) -> None:
-    user, posts = await fetch_user_posts("@arimariash", 3, base_url=tiktok_upstream.base_url)
+    user, posts = await fetch_user_posts("@sample_user", 3, base_url=tiktok_upstream.base_url)
 
-    assert user["nickname"] == "Ari"
+    assert user["nickname"] == "示例作者"
     assert [post["id"] for post in posts] == [
         "7600000000000000001",
         "7600000000000000002",
@@ -243,7 +243,7 @@ async def test_fetch_user_posts_maps_upstream_failures(mode: str, status_code: i
     upstream.start()
     try:
         with pytest.raises(HTTPException) as exc_info:
-            await fetch_user_posts("arimariash", 12, base_url=upstream.base_url)
+            await fetch_user_posts("sample_user", 12, base_url=upstream.base_url)
     finally:
         upstream.close()
 
@@ -260,7 +260,7 @@ async def test_fetch_user_posts_maps_timeout() -> None:
     upstream.start()
     try:
         with pytest.raises(HTTPException) as exc_info:
-            await fetch_user_posts("arimariash", 12, base_url=upstream.base_url, timeout=0.01)
+            await fetch_user_posts("sample_user", 12, base_url=upstream.base_url, timeout=0.01)
     finally:
         upstream.close()
 
@@ -268,10 +268,10 @@ async def test_fetch_user_posts_maps_timeout() -> None:
 
 
 def test_post_conversion_supports_video_and_image_posts() -> None:
-    video_item = post_to_jsonfeed_item(_video_post(1), _user(), "arimariash")
-    image_item = post_to_jsonfeed_item(_image_post(2), _user(), "arimariash")
+    video_item = post_to_jsonfeed_item(_video_post(1), _user(), "sample_user")
+    image_item = post_to_jsonfeed_item(_image_post(2), _user(), "sample_user")
 
-    assert str(video_item.url).endswith("/@arimariash/video/7600000000000000001")
+    assert str(video_item.url).endswith("/@sample_user/video/7600000000000000001")
     assert video_item.attachments and video_item.attachments[0].mime_type == "video/mp4"
     assert str(video_item.attachments[0].url).startswith("https://www.tiktok.com/aweme/v1/play/")
     assert video_item.content_html and "<video controls" in video_item.content_html
@@ -283,10 +283,10 @@ def test_post_conversion_supports_video_and_image_posts() -> None:
 
 def test_post_conversion_uses_media_proxy_url() -> None:
     media_url = (
-        "http://testserver/api/rss/tiktok/media/arimariash/7600000000000000001"
+        "http://testserver/api/rss/tiktok/media/sample_user/7600000000000000001"
         "?sec_uid=MS4wLjABAAAA-test-sec-uid&max_posts=12"
     )
-    item = post_to_jsonfeed_item(_video_post(1), _user(), "arimariash", media_url=media_url)
+    item = post_to_jsonfeed_item(_video_post(1), _user(), "sample_user", media_url=media_url)
 
     assert item.attachments and str(item.attachments[0].url) == media_url
     assert item.content_html and f'src="{media_url.replace("&", "&amp;")}"' in item.content_html
@@ -294,7 +294,7 @@ def test_post_conversion_uses_media_proxy_url() -> None:
 
 @pytest.mark.asyncio
 async def test_media_proxy_forwards_range_and_tiktok_referer(tiktok_upstream: LocalTikTokUpstream) -> None:
-    referer = "https://www.tiktok.com/@arimariash/video/7600000000000000001"
+    referer = "https://www.tiktok.com/@sample_user/video/7600000000000000001"
     response = await proxy_media_response(
         f"{tiktok_upstream.base_url}/media/video.mp4",
         referer,
@@ -318,7 +318,7 @@ async def test_media_proxy_forwards_range_and_tiktok_referer(tiktok_upstream: Lo
 @pytest.mark.asyncio
 async def test_media_resolution_by_sec_uid_does_not_fetch_profile(tiktok_upstream: LocalTikTokUpstream) -> None:
     posts = await fetch_posts_by_sec_uid(
-        "arimariash",
+        "sample_user",
         "MS4wLjABAAAA-test-sec-uid",
         3,
         base_url=tiktok_upstream.base_url,
@@ -355,16 +355,16 @@ def test_tiktok_route_rejects_invalid_username(username: str) -> None:
 @pytest.mark.parametrize("max_posts", [0, 51])
 def test_tiktok_route_validates_max_posts(max_posts: int) -> None:
     with TestClient(app) as client:
-        response = client.get("/api/rss/tiktok/arimariash/posts", params={"max_posts": max_posts})
+        response = client.get("/api/rss/tiktok/sample_user/posts", params={"max_posts": max_posts})
     assert response.status_code == 422
 
 
 @pytest.mark.parametrize(
     "path",
     [
-        "/api/rss/tiktok/media/@arimariash/7600000000000000001",
+        "/api/rss/tiktok/media/@sample_user/7600000000000000001",
         "/api/rss/tiktok/media/bad-name/7600000000000000001",
-        "/api/rss/tiktok/media/arimariash/not-a-video-id",
+        "/api/rss/tiktok/media/sample_user/not-a-video-id",
     ],
 )
 def test_tiktok_media_route_rejects_invalid_identifiers(path: str) -> None:

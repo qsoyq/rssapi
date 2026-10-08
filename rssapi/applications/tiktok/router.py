@@ -297,7 +297,7 @@ async def posts_v2(
         max_length=25,
         pattern=r"^@?[A-Za-z0-9._]{1,24}$",
         description="TikTok 用户名，可包含 @ 前缀",
-        examples=["arimariash", "@arimariash"],
+        examples=["sample_user", "@sample_user"],
     ),
     max_posts: int = Query(12, ge=1, le=50, description="最大贴文数，默认 12，最大 50"),
     cookie_query: str | None = Query(
@@ -353,7 +353,7 @@ async def posts(
         max_length=25,
         pattern=r"^@?[A-Za-z0-9._]{1,24}$",
         description="TikTok 用户名，可包含 @ 前缀",
-        examples=["arimariash", "@arimariash"],
+        examples=["sample_user", "@sample_user"],
     ),
     max_posts: int = Query(12, ge=1, le=50, description="最大贴文数，默认 12，最大 50"),
 ) -> JSONFeed:

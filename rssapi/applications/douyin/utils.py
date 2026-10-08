@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from rssapi.applications.rss.schemas.rss.jsonfeed import JSONFeedAuthor, JSONFeedItem
 
 DOUYIN_BASE_URL = "https://www.douyin.com"
+TOPIC_PAGE_SIZE = 15
 
 
 def resolve_cookie(cookies: str | None, cookie_header: str | None) -> str:
@@ -68,12 +69,16 @@ def post_hashtags(post: dict[str, Any]) -> list[str]:
     )
 
 
+def post_matches_topic(topic: str, post: dict[str, Any]) -> bool:
+    return any(topic in hashtag for hashtag in post_hashtags(post))
+
+
 def topic_posts_to_feeds(topic: str, posts: list[dict[str, Any]]) -> list[JSONFeedItem]:
     items: dict[str, tuple[int, JSONFeedItem]] = {}
     for post in posts:
         tags = post_hashtags(post)
         aweme_id = post.get("aweme_id")
-        if topic not in tags or not aweme_id:
+        if not post_matches_topic(topic, post) or not aweme_id:
             continue
         try:
             timestamp = int(post["create_time"])

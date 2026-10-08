@@ -45,7 +45,7 @@ def test_format_duration():
 def test_video_to_jsonfeed_item():
     author = JSONFeedAuthor.model_validate(
         {
-            "name": "初夏ChuXXia",
+            "name": "示例作者",
             "url": "https://space.bilibili.com/4186021",
             "avatar": "https://i1.hdslb.com/bfs/face/avatar.jpg",
         }
@@ -77,7 +77,7 @@ def test_video_to_jsonfeed_item():
 
 
 def test_video_to_jsonfeed_item_renders_playable_video():
-    author = JSONFeedAuthor.model_validate({"name": "小镇阿橙", "url": "https://space.bilibili.com/507243527"})
+    author = JSONFeedAuthor.model_validate({"name": "示例作者", "url": "https://space.bilibili.com/507243527"})
     item = video_to_jsonfeed_item(
         {
             "aid": 123,

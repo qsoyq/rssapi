@@ -11,7 +11,11 @@ import httpx
 import pytest
 from tests.routers.douyin_routes_test import post
 
-from rssapi.applications.douyin.router import fetch_topic_feeds_by_cache, topic_feeds_cache
+from rssapi.applications.douyin.router import (
+    fetch_topic_feeds,
+    fetch_topic_feeds_by_cache,
+    topic_feeds_cache,
+)
 from rssapi.applications.douyin.search import (
     SEARCH_PATH,
     DouyinSearchError,
@@ -19,6 +23,7 @@ from rssapi.applications.douyin.search import (
     httpx_proxy,
     search_payload,
 )
+from rssapi.applications.douyin.utils import parse_cookies
 from rssapi.utils.playwright_capacity import (
     PlaywrightCapacityError,
     _playwright_capacity_limiter,
@@ -31,6 +36,7 @@ class LocalDouyinUpstream:
         self.mode = "posts"
         self.search_requests: list[dict] = []
         self.homepage_requests = 0
+        self.homepage_headers: list[dict[str, str]] = []
         self.user_agents: list[str] = []
         controller = self
 
@@ -39,6 +45,7 @@ class LocalDouyinUpstream:
                 parsed = urlsplit(self.path)
                 if parsed.path == "/":
                     controller.homepage_requests += 1
+                    controller.homepage_headers.append(dict(self.headers))
                     controller.user_agents.append(self.headers.get("User-Agent", ""))
                     body = (
                         "<html><title>Douyin integration test</title><script>"
@@ -65,8 +72,10 @@ class LocalDouyinUpstream:
                 offset = int(query["offset"][0])
                 if controller.mode == "slow":
                     time.sleep(1)
-                if controller.mode in ("challenge", "later_challenge") and (
-                    controller.mode == "challenge" or offset > 0
+                if controller.mode in ("challenge", "later_challenge", "third_page_challenge") and (
+                    controller.mode == "challenge"
+                    or (controller.mode == "later_challenge" and offset > 0)
+                    or (controller.mode == "third_page_challenge" and offset >= 30)
                 ):
                     payload = {"status_code": 0, "data": [], "search_nil_info": {"search_nil_type": "verify_check"}}
                 elif controller.mode == "empty_body":
@@ -90,7 +99,7 @@ class LocalDouyinUpstream:
                         "status_code": 0,
                         "data": [{"type": 1, "aweme_info": item} for item in entries] + [{"type": 6}],
                         "cursor": 0 if controller.mode == "stuck_cursor" else offset + 15,
-                        "has_more": 1,
+                        "has_more": 0 if controller.mode == "early_end" else 1,
                         "log_pb": {} if controller.mode == "missing_search_id" else {"impr_id": "search-session"},
                     }
                 self._send(json.dumps(payload, ensure_ascii=False).encode())
@@ -146,12 +155,18 @@ async def test_real_browser_bootstrap_http_requests_pagination_and_cache(upstrea
     client = upstream.client()
     cookie = "sessionid_ss=account-a; custom_token=padding=="
     items = await fetch_topic_feeds_by_cache("示例话题", cookie, 45, client=client)
-    assert [item.id for item in items] == ["douyin.aweme.3", "douyin.aweme.1", "douyin.aweme.2", "douyin.aweme.4"]
+    assert [item.id for item in items] == [
+        "douyin.aweme.3",
+        "douyin.aweme.1",
+        "douyin.aweme.2",
+        "douyin.aweme.9",
+        "douyin.aweme.4",
+    ]
     authors = set()
     for item in items:
         assert item.author is not None
         authors.add(item.author.url)
-    assert len(authors) == 4
+    assert len(authors) == 5
     assert items[0].content_html is not None
     assert "<img" in items[0].content_html
     assert [request["query"]["offset"] for request in upstream.search_requests] == [["0"], ["15"], ["30"]]
@@ -162,7 +177,10 @@ async def test_real_browser_bootstrap_http_requests_pagination_and_cache(upstrea
         assert headers["uifid"] == "runtime-fingerprint"
         assert headers["user-agent"] == upstream.user_agents[0]
         assert "sessionid_ss=account-a" in headers["cookie"]
-        assert "custom_token=padding==" in headers["cookie"]
+        assert "custom_token" not in parse_cookies(headers["cookie"])
+        assert "Macintosh; Intel Mac OS X 10_15_7" in headers["user-agent"]
+        assert request["query"]["os_name"] == ["Mac OS"]
+        assert request["query"]["os_version"] == ["10.15.7"]
         assert request["query"]["msToken"] == ["runtime-token=="]
         assert request["query"]["keyword"] == ["#示例话题"]
         assert json.loads(request["query"]["filter_selected"][0]) == {"sort_type": "2", "publish_time": "0"}
@@ -174,6 +192,41 @@ async def test_real_browser_bootstrap_http_requests_pagination_and_cache(upstrea
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("cookie", "expected_bootstrap_cookie"),
+    [
+        (
+            "sessionid_ss=account==; UIFID=stale-fingerprint; UIFID_TEMP=stale-temp; "
+            "msToken=stale-token==; custom_token=padding==",
+            "sessionid_ss=account==",
+        ),
+        ("sessionid_ss=account==", "sessionid_ss=account=="),
+        ("sessionid=legacy==; custom_token=padding==", "sessionid=legacy==; custom_token=padding=="),
+        ("sessionid_ss=; sessionid=legacy==", "sessionid_ss=; sessionid=legacy=="),
+    ],
+)
+async def test_topic_bootstrap_login_cookie_and_runtime_fingerprint(
+    upstream: LocalDouyinUpstream, cookie: str, expected_bootstrap_cookie: str
+) -> None:
+    posts = await upstream.client().fetch("示例话题", cookie, 2)
+    assert len(posts) == 3
+    bootstrap_headers = {key.lower(): value for key, value in upstream.homepage_headers[0].items()}
+    assert parse_cookies(bootstrap_headers["cookie"]) == parse_cookies(expected_bootstrap_cookie)
+    search_request = upstream.search_requests[0]
+    search_headers = {key.lower(): value for key, value in search_request["headers"].items()}
+    assert search_headers["user-agent"] == bootstrap_headers["user-agent"]
+    assert "Macintosh; Intel Mac OS X 10_15_7" in search_headers["user-agent"]
+    assert search_request["query"]["os_name"] == ["Mac OS"]
+    assert search_request["query"]["os_version"] == ["10.15.7"]
+    assert search_request["query"]["msToken"] == ["runtime-token=="]
+    assert search_headers["uifid"] == "runtime-fingerprint"
+    assert parse_cookies(search_headers["cookie"]) == {
+        **parse_cookies(expected_bootstrap_cookie),
+        "UIFID_TEMP": "runtime-fingerprint",
+    }
+
+
+@pytest.mark.asyncio
 async def test_later_page_challenge_does_not_cache_partial_results(upstream: LocalDouyinUpstream) -> None:
     upstream.mode = "later_challenge"
     client = upstream.client()
@@ -182,7 +235,7 @@ async def test_later_page_challenge_does_not_cache_partial_results(upstream: Loc
     assert exc.value.status_code == 503
     assert len(topic_feeds_cache) == 0
     upstream.mode = "posts"
-    assert len(await fetch_topic_feeds_by_cache("示例话题", "sessionid_ss=value", 45, client=client)) == 4
+    assert len(await fetch_topic_feeds_by_cache("示例话题", "sessionid_ss=value", 45, client=client)) == 5
 
 
 @pytest.mark.asyncio
@@ -213,8 +266,53 @@ async def test_verified_empty_results_and_post_limit(upstream: LocalDouyinUpstre
     upstream.mode = "empty_feed"
     assert await upstream.client().fetch("示例话题", "sessionid_ss=value") == []
     upstream.mode = "posts"
-    assert len(await upstream.client().fetch("示例话题", "sessionid_ss=value", 2)) == 2
+    assert len(await fetch_topic_feeds("示例话题", "sessionid_ss=value", 2, client=upstream.client())) == 2
     assert len(upstream.search_requests) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("max_posts", "pages"), [(1, 1), (15, 1), (16, 2), (30, 2), (31, 3), (45, 3), (46, 4), (120, 8)]
+)
+async def test_page_budget_comes_from_max_posts_without_filling_short_results(
+    upstream: LocalDouyinUpstream, max_posts: int, pages: int
+) -> None:
+    items = await fetch_topic_feeds("示例话题", "sessionid_ss=value", max_posts, client=upstream.client())
+    assert 0 < len(items) <= max_posts
+    assert [request["query"]["offset"] for request in upstream.search_requests] == [
+        [str(index * 15)] for index in range(pages)
+    ]
+    assert all(request["query"]["count"] == ["15"] for request in upstream.search_requests)
+    if max_posts > 1:
+        assert "douyin.aweme.9" in {item.id for item in items}
+
+
+@pytest.mark.asyncio
+async def test_default_fetch_stays_on_first_page_and_ignores_later_challenge(upstream: LocalDouyinUpstream) -> None:
+    upstream.mode = "later_challenge"
+    items = await fetch_topic_feeds_by_cache("示例话题", "sessionid_ss=value", client=upstream.client())
+    assert len(items) == 3
+    assert len(upstream.search_requests) == 1
+    assert len(topic_feeds_cache) == 1
+
+
+@pytest.mark.asyncio
+async def test_explicit_third_page_verification_still_fails_without_caching(upstream: LocalDouyinUpstream) -> None:
+    upstream.mode = "third_page_challenge"
+    client = upstream.client()
+    assert len(await fetch_topic_feeds_by_cache("示例话题", "sessionid_ss=value", 30, client=client)) == 4
+    before = len(topic_feeds_cache)
+    with pytest.raises(DouyinSearchError) as exc:
+        await fetch_topic_feeds_by_cache("示例话题", "sessionid_ss=value", 45, client=client)
+    assert exc.value.status_code == 503
+    assert len(topic_feeds_cache) == before
+
+
+@pytest.mark.asyncio
+async def test_upstream_end_stops_before_page_budget(upstream: LocalDouyinUpstream) -> None:
+    upstream.mode = "early_end"
+    assert len(await upstream.client().fetch("示例话题", "sessionid_ss=value", 120)) == 3
+    assert len(upstream.search_requests) == 1
 
 
 @pytest.mark.asyncio

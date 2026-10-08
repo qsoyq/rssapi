@@ -27,17 +27,17 @@ def test_embedded_post_decodes_serverjs_context() -> None:
     assert instagram_utils._embedded_post({"require": [["init", [{"contextJSON": context}]]]}) == post
 
 
-def _user(username: str = "he.le_nn", *, is_private: bool = False) -> dict[str, Any]:
+def _user(username: str = "sample.user_01", *, is_private: bool = False) -> dict[str, Any]:
     return {
         "id": "1589007020",
         "username": username,
-        "full_name": "Helen",
+        "full_name": "示例作者",
         "is_private": is_private,
         "profile_pic_url": "https://cdn.example/avatar.jpg",
     }
 
 
-def _image_post(index: int, username: str = "he.le_nn") -> dict[str, Any]:
+def _image_post(index: int, username: str = "sample.user_01") -> dict[str, Any]:
     return {
         "id": f"post-{index}",
         "pk": str(index),
@@ -360,7 +360,7 @@ async def test_single_post_media_fetches_all_images_without_profile_feed(
     post["id"] = "3994015216743585234_59186798522"
     post["code"] = "Ddtl62tgZXS"
     post["carousel_media"] = [_image_post(index) for index in range(12)]
-    instagram_upstream.add("he.le_nn", None, _payload("he.le_nn", [post]))
+    instagram_upstream.add("sample.user_01", None, _payload("sample.user_01", [post]))
 
     media = await instagram_utils.fetch_post_media(post["id"], base_url=instagram_upstream.base_url)
 
@@ -374,13 +374,13 @@ def test_post_to_jsonfeed_item_renders_image_caption_metrics_and_location() -> N
     post["caption"] = {"text": "<First line>\n#travel"}
     post["location"] = {"name": "A&B"}
 
-    item = post_to_jsonfeed_item(post, _user(), "he.le_nn")
+    item = post_to_jsonfeed_item(post, _user(), "sample.user_01")
 
     assert item.id == "post-1"
     assert item.title == "<First line>"
     assert str(item.url) == "https://www.instagram.com/p/Code1/"
     assert item.date_published == "2023-11-14T22:13:21+00:00"
-    assert item.author and item.author.name == "Helen"
+    assert item.author and item.author.name == "示例作者"
     assert item.image and str(item.image).startswith("https://cdn.example/image-1.jpg")
     content_html = item.content_html or ""
     assert content_html.index("<div>") < content_html.index("<details>")
@@ -405,7 +405,7 @@ def test_post_to_jsonfeed_item_renders_video_and_mixed_carousel() -> None:
     post["media_type"] = 8
     post["carousel_media"] = [_image_post(21), video]
 
-    item = post_to_jsonfeed_item(post, _user(), "he.le_nn")
+    item = post_to_jsonfeed_item(post, _user(), "sample.user_01")
 
     content_html = item.content_html or ""
     assert content_html.count("<img ") == 1
@@ -430,7 +430,7 @@ def test_post_to_jsonfeed_item_renders_collapsible_body_without_media() -> None:
         "user": _user(),
     }
 
-    item = post_to_jsonfeed_item(post, _user(), "he.le_nn")
+    item = post_to_jsonfeed_item(post, _user(), "sample.user_01")
 
     assert item.content_html == (
         "<details><summary>查看正文</summary><p>A text-only post</p><p>❤️ 3 · 💬 4 · 📍 Somewhere</p></details>"
@@ -443,7 +443,7 @@ def test_post_to_jsonfeed_item_does_not_render_empty_details_for_media_only() ->
     post.pop("like_count")
     post.pop("comment_count")
 
-    item = post_to_jsonfeed_item(post, _user(), "he.le_nn")
+    item = post_to_jsonfeed_item(post, _user(), "sample.user_01")
 
     assert item.content_html and item.content_html.startswith("<div><img ")
     assert "<details>" not in item.content_html
@@ -452,7 +452,7 @@ def test_post_to_jsonfeed_item_does_not_render_empty_details_for_media_only() ->
 def test_post_to_jsonfeed_item_handles_missing_caption_and_unknown_media() -> None:
     post = {"id": "unknown-1", "code": "Unknown1", "media_type": 99, "user": _user()}
 
-    item = post_to_jsonfeed_item(post, _user(), "he.le_nn")
+    item = post_to_jsonfeed_item(post, _user(), "sample.user_01")
 
     assert item.title == "Instagram post Unknown1"
     assert item.content_html == "<p>Instagram post</p>"
@@ -466,7 +466,7 @@ def test_post_to_jsonfeed_item_skips_invalid_upstream_urls() -> None:
     post["video_versions"] = [{"url": "not-a-url"}]
     post["user"]["profile_pic_url"] = "data:text/html,unsafe"
 
-    item = post_to_jsonfeed_item(post, _user(), "he.le_nn")
+    item = post_to_jsonfeed_item(post, _user(), "sample.user_01")
 
     assert item.image is None
     assert item.attachments is None
@@ -648,7 +648,7 @@ def test_instagram_route_returns_json_feed_and_uses_cache(
     assert first_response.status_code == 200, first_response.text
     assert first_response.headers["content-type"].startswith("application/feed+json")
     data = first_response.json()
-    assert data["title"] == f"Helen (@{username}) 的 Instagram 贴文"
+    assert data["title"] == f"示例作者 (@{username}) 的 Instagram 贴文"
     assert data["author"]["url"] == f"https://www.instagram.com/{username}/"
     assert data["home_page_url"] == ""
     assert data["items"][0]["url"] == "https://www.instagram.com/p/Code1/"

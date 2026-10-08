@@ -10,6 +10,7 @@ from playwright._impl._errors import TimeoutError as PlaywrightTimeoutError
 
 from rssapi.applications.douyin.search import DouyinSearchError, DouyinTopicClient
 from rssapi.applications.douyin.utils import (
+    TOPIC_PAGE_SIZE,
     install_log_redaction,
     normalize_topic,
     resolve_cookie,
@@ -201,10 +202,31 @@ async def topic(
     topic: str = Path(..., min_length=1, max_length=100, description="话题名，可带 #；# 在 URL 中需编码为 %23"),
     cookies: str | None = Query(None, description="抖音完整 Cookie，也可通过 X-Douyin-Cookie 请求头传递"),
     x_douyin_cookie: str | None = Header(None, alias="X-Douyin-Cookie", description="抖音完整 Cookie；优先于 query"),
-    max_posts: int = Query(30, ge=1, le=45, description="最多返回的作品数；最多抓取三页，过滤后可能不足"),
+    max_posts: int = Query(
+        TOPIC_PAGE_SIZE, ge=1, le=120, description="最多返回的作品数；每页 15 条，页数向上取整，过滤后不补页"
+    ),
     timeout: float = Query(60, gt=0, le=180, description="包括排队、会话初始化和分页的总超时秒数"),
     use_cache: bool = Query(True, description="是否从缓存返回"),
 ):
+    """订阅话题关键词相关的视频和图文，按最新发布时间排列。
+
+    话题名去除首个 # 和首尾空白，搜索关键词为 # 加话题名。
+    使用 Web 综合搜索 API，不是按话题 ID 获取作品列表；每页请求 15 条原始搜索结果，可能包含卡片。
+    max_posts 默认 15、范围 1–120，最多请求 ceil(max_posts / 15) 页：默认一页，120 对应八页。
+    上游无更多结果时提前结束；话题过滤、无效数据剔除和去重后数量不足不补页。
+    标签名包含话题关键词即匹配，例如“示例话题延伸”可匹配“示例话题”；不依据正文单独判断。
+    仅保留有作品 ID 和有效发布时间的条目，按 ID 去重、发布时间倒序，最多返回 max_posts 条。
+
+    Cookie 可通过 cookies 参数或 X-Douyin-Cookie 请求头传入，请求头优先。
+    含非空 sessionid_ss 时仅导入该登录凭据，否则沿用完整 Cookie。
+    无头 Chromium 使用 macOS 格式 UA，Chrome 主版本取实际浏览器版本；打开首页初始化会话，
+    再以生成的运行时 Cookie、指纹和相同 UA 通过 HTTPX 搜索，浏览器与 HTTPX 共用环境代理配置。
+
+    默认使用按话题、原始 Cookie 和 max_posts 隔离的缓存，use_cache=false 可跳过缓存。
+    timeout 默认 60 秒、最高 180 秒，覆盖排队、会话初始化和所有分页。
+    任何请求页触发验证均整次返回 503，不返回或缓存部分作品；登录失效返回 401，
+    上游空响应或结构异常返回 502，总超时返回 504。成功响应为 JSON Feed，feed_url 移除 cookies。
+    """
     normalized_topic = normalize_topic(topic)
     cookie = resolve_cookie(cookies, x_douyin_cookie)
     try:
@@ -224,7 +246,7 @@ async def topic(
     return {
         "version": "https://jsonfeed.org/version/1",
         "title": f"抖音话题 #{normalized_topic} · 最新发布",
-        "description": f"明确带 #{normalized_topic} 的视频和图文，按发布时间排序",
+        "description": f"话题标签包含 {normalized_topic} 的视频和图文，按发布时间排序",
         "home_page_url": topic_page_url(normalized_topic),
         "feed_url": public_request_url(req, remove_query_params={"cookies"}),
         "author": {"name": "抖音话题订阅", "url": topic_page_url(normalized_topic)},
@@ -246,13 +268,13 @@ def _topic_semaphore() -> asyncio.Semaphore:
 
 @cached(topic_feeds_cache)
 async def fetch_topic_feeds_by_cache(
-    topic: str, cookie: str, max_posts: int = 30, *, client: DouyinTopicClient | None = None
+    topic: str, cookie: str, max_posts: int = TOPIC_PAGE_SIZE, *, client: DouyinTopicClient | None = None
 ) -> list[JSONFeedItem]:
     return await fetch_topic_feeds(topic, cookie, max_posts, client=client)
 
 
 async def fetch_topic_feeds(
-    topic: str, cookie: str, max_posts: int = 30, *, client: DouyinTopicClient | None = None
+    topic: str, cookie: str, max_posts: int = TOPIC_PAGE_SIZE, *, client: DouyinTopicClient | None = None
 ) -> list[JSONFeedItem]:
     async with _topic_semaphore():
         posts = await (client or DouyinTopicClient()).fetch(topic, cookie, max_posts)
