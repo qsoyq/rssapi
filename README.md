@@ -119,6 +119,14 @@ All configuration items support environment variable overrides. They can also be
 
 The sections below list environment variables for RSS sources and middleware.
 
+### 正文折叠
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `RSS_COLLAPSE_BODY_ENABLED` | `true` | 控制 Twitter、Instagram、TikTok、微博和 Telegram 的正文折叠；设为 `false` 时直接展示正文 HTML |
+
+开启时，正文位于默认收起的“查看正文”区域内，媒体和“查看原贴”链接位于区域外。纯媒体内容不会生成空折叠区域。修改此配置后需重启服务；已保存到阅读器的文章不会自动改写。NGA 原帖的折叠和相册标签不受此开关控制。
+
 ### Cache configuration
 
 Each data source can configure cache size (`*_MAXSIZE`, max entries) and expiry (`*_TTL`, seconds) independently.

@@ -23,6 +23,7 @@ from rssapi.applications.twitter.client_transaction import client_transaction_si
 from rssapi.applications.twitter.patch import install_twitter_client_429_no_retry_patch
 from rssapi.applications.twitter.types import Tweet
 from rssapi.core.settings import settings
+from rssapi.utils.html import render_collapsible_body
 from rssapi.utils.md import markdown_parse
 from rssapi.utils.sync import async_semaphore
 
@@ -341,7 +342,7 @@ def content_html_from_tweet(tweet: Tweet) -> str:
             )
 
     if body_parts:
-        content_parts.append(f"<details><summary>查看正文</summary>{''.join(body_parts)}</details>")
+        content_parts.append(render_collapsible_body("".join(body_parts)))
 
     return "".join(content_parts)
 
