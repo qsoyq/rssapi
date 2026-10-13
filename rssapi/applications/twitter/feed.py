@@ -25,9 +25,8 @@ logger = logging.getLogger(__file__)
 
 
 def _avatar_from_tweet(tweet: Tweet) -> str | None:
-    """优先从推文里读取图片作为头像，如果没有则从作者的 profile image url 读取"""
-    photos = [media.url for media in tweet.media if media.type == "photo"]
-    return photos[0] if photos else tweet.author.profile_image_url
+    """Return the author's profile image, never a photo attached to the tweet."""
+    return tweet.author.profile_image_url
 
 
 def _title_from_tweet(tweet: Tweet) -> str:

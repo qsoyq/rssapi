@@ -81,7 +81,8 @@ async def fetch_feeds(url_list: list[str], ua: str) -> list[JSONFeedItem]:
             "url": href,
             "date_published": date,
             "content_text": desc,
-            "author": {"avatar": icon, "url": homepage, "name": author},
+            "image": icon or None,
+            "author": {"url": homepage, "name": author},
         }
         items.append(JSONFeedItem(**payload))
     return items

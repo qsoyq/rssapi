@@ -89,11 +89,7 @@ async def get_gofans_app_records_by_cache(limit, page, kind) -> list[JSONFeedIte
             "id": f"macOS-{item['app_id']}",
             "date_published": updated,
             "content_text": description or "",
-            "author": {
-                "avatar": item["icon"],
-                "url": url,
-                "name": item["name"],
-            },
+            "image": item["icon"],
         }
         items.append(JSONFeedItem.model_validate(payload))
     return items

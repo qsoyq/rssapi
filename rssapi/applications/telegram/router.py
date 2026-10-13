@@ -43,15 +43,16 @@ async def channel_jsonfeed(req: Request, channels: list[str] = Query(..., descri
         "favicon": "https://fastly.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Telegram.png",
         "items": items,
     }
-    for item in items:
-        if item.author:
-            if item.author.avatar:
-                feed["icon"] = item.author.avatar
-                feed["favicon"] = item.author.avatar
-            if item.author.name:
-                feed["title"] = item.author.name
-            feed["author"] = item.author
-            break
+    if len(channels) == 1:
+        for item in items:
+            if item.author:
+                if item.author.avatar:
+                    feed["icon"] = item.author.avatar
+                    feed["favicon"] = item.author.avatar
+                if item.author.name:
+                    feed["title"] = item.author.name
+                feed["author"] = item.author
+                break
 
     return feed
 

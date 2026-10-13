@@ -52,7 +52,8 @@ async def posts(
             if _screen_name is not None and _screen_name == screen_name:
                 feed["author"] = item.author
                 feed["title"] = item.author.name
-                feed["icon"] = feed["favicon"] = item.author.avatar
+                if item.author.avatar:
+                    feed["icon"] = feed["favicon"] = item.author.avatar
                 break
 
     return feed

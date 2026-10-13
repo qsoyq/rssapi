@@ -37,7 +37,6 @@ def add_middleware(app: FastAPI):
         NodeseekFeedFilterMiddleware,
         AddTwitterHTMLFeedMiddleware,
         UpdateTelegraphHTMLFeedMiddleware,
-        FillFeedAuthorFromItemsMiddleware,
         FillFeedIconFromAuthorAvatarMiddleware,
         ExtractHashtagMiddleware,
         AddMediaTitlePrefixMiddleware,
@@ -304,26 +303,16 @@ class AppendOriginalPostLinkMiddleware(BaseJSONFeedItemModelMiddleware):
 
 
 class FillFeedIconFromAuthorAvatarMiddleware(BaseJSONFeedMiddleware):
-    """当顶层 author.avatar 存在时，用 avatar 覆盖 icon/favicon"""
+    """Use an explicitly provided feed author's avatar only to fill missing icons."""
 
     def transform_body(self, body: dict[str, Any], request: Request) -> dict[str, Any]:
         author = body.get("author")
         avatar = author.get("avatar") if isinstance(author, dict) else None
         if avatar:
-            body["icon"] = avatar
-            body["favicon"] = avatar
-        return body
-
-
-class FillFeedAuthorFromItemsMiddleware(BaseJSONFeedMiddleware):
-    """当 JSONFeed 顶层 author 不存在时，从 items 中取第一个有 author 的条目填充"""
-
-    def transform_body(self, body: dict[str, Any], request: Request) -> dict[str, Any]:
-        if body.get("version") == JSON_FEED_VERSION_1 and not body.get("author"):
-            for item in body.get("items", []):
-                if item.get("author"):
-                    body["author"] = item["author"]
-                    break
+            if not body.get("icon"):
+                body["icon"] = avatar
+            if not body.get("favicon"):
+                body["favicon"] = avatar
         return body
 
 
