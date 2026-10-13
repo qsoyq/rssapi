@@ -141,7 +141,7 @@ def video_to_jsonfeed_item(channel: YoutubeChannelSnippet, video: YoutubeVideoSn
             "author": {
                 "name": channel["title"],
                 "url": f"https://www.youtube.com/channel/{channel['id']}",
-                "avatar": video["thumbnails"],
+                "avatar": channel["thumbnails"],
             },
         }
     )

@@ -162,9 +162,6 @@ def douyin_user_feeds_handler(feed: dict, items: list[JSONFeedItem]):
     if items and items[0].author and items[0].author.avatar:
         feed["icon"] = feed["favicon"] = items[0].author.avatar
 
-    for item in items:
-        if item.image and item.author:
-            item.author.avatar = item.image
     feed["items"] = items
 
 

@@ -723,6 +723,7 @@ def test_tweets_to_jsonfeed_items_moves_media_emoji_to_title():
 
     item = _tweets_to_jsonfeed_items([tweet])[0]
 
+    assert item.author and item.author.avatar is None
     assert item.title == "📸 hello world"
     assert (
         item.content_html == '<div><img src="https://example.com/image.jpg" width="320" height="180" /></div>'

@@ -71,6 +71,7 @@ def test_video_to_jsonfeed_item():
     assert str(item.image) == "https://i0.hdslb.com/bfs/archive/cover.jpg"
     assert item.date_published == "2024-03-09T16:00:00+00:00"
     assert item.author == author
+    assert item.author.avatar != item.image
     assert "播放: 100" in (item.content_html or "")
     assert "<video" not in (item.content_html or "")
     assert '<img src="https://i0.hdslb.com/bfs/archive/cover.jpg"' in (item.content_html or "")
