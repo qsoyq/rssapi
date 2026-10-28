@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup as Soup
 from cachetools import TTLCache
 from fastapi import HTTPException
 from py_mini_racer import MiniRacer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from rssapi.applications.nga.schemas import (
     ForumSectionIndex,
@@ -130,27 +130,41 @@ class NgaToolkit:
     @cached(TTLCache(settings.nga.sections_cache_maxsize, settings.nga.sections_cache_ttl))
     async def get_sections() -> GetForumSectionsRes:
         """获取论坛分区信息"""
-        sections = []
         url = f"{NGA_IMAGE_CDN_BASE_URL}/proxy/cache_attach/bbs_index_data.js"
         async with httpx.AsyncClient(verify=False) as client:
             resp = await client.get(url)
             resp.raise_for_status()
 
-        data = json.loads(resp.text[33:])
+        return NgaToolkit.parse_sections(resp.text)
+
+    @staticmethod
+    def parse_sections(script: str) -> GetForumSectionsRes:
+        sections = []
+        skipped = 0
+        data = json.loads(script[33:])
         for section in data["data"]["0"]["all"].values():
             for item in section["content"].values():
                 for detail in item["content"].values():
-                    id_ = detail.get("stid") or detail["fid"]
-                    icon = f"{NGA_IMAGE_CDN_BASE_URL}/proxy/cache_attach/ficon/{id_}u.png"
-                    sections.append(
-                        ForumSectionIndex(
-                            fid=detail["fid"],
-                            name=detail["name"],
-                            stid=detail.get("stid"),
-                            info=f"{detail.get('info')}",
-                            icon=icon,
+                    if not isinstance(detail, dict):
+                        skipped += 1
+                        continue
+                    try:
+                        section_index = ForumSectionIndex.model_validate(
+                            {
+                                "fid": detail.get("fid"),
+                                "name": detail.get("name"),
+                                "stid": detail.get("stid"),
+                                "info": f"{detail.get('info')}",
+                            }
                         )
-                    )
+                    except ValidationError:
+                        skipped += 1
+                        continue
+                    id_ = detail.get("stid") or detail["fid"]
+                    section_index.icon = f"{NGA_IMAGE_CDN_BASE_URL}/proxy/cache_attach/ficon/{id_}u.png"
+                    sections.append(section_index)
+        if skipped:
+            logger.warning(f"Skipped {skipped} invalid NGA section entries")
         return GetForumSectionsRes(sections=sections)
 
     @staticmethod
